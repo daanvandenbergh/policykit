@@ -51,6 +51,50 @@ describe("pending", () => {
     });
 });
 
+describe("supersession", () => {
+    it("an immediate newer revision permanently supersedes a still-pending older one", () => {
+        // The README's sanctioned scenario: a law/security revision shipped effective
+        // immediately while an earlier revision's notice window is still running. The
+        // superseded text never binds, so pending() must never announce it.
+        const dir = makePolicyDir({
+            "2026-07-01/en.mdx": validDefault("2026-09-01"),
+            "2026-07-02/en.mdx": validDefault("2026-07-02"),
+        });
+        const policy = new Policy({ slug: "superseded", dir, locales: ["en"] });
+        expect(policy.effective(new Date("2026-07-15T00:00:00Z"))?.revision).toBe("2026-07-02");
+        expect(policy.pending(new Date("2026-07-01T00:00:00Z"))?.revision).toBe("2026-07-02");
+        expect(policy.pending(new Date("2026-08-01T00:00:00Z"))).toBeUndefined();
+    });
+
+    it("supersedes against EVERY newer revision, not just the adjacent one", () => {
+        // The middle revision postpones further out (eff 2026-10-01) than the first pending one
+        // (eff 2026-09-01); then an immediate third revision (eff 2026-08-01) supersedes BOTH.
+        // The first revision's ADJACENT successor alone would not supersede it - only the
+        // min-effectiveFrom scan across all newer revisions does.
+        const dir = makePolicyDir({
+            "2026-07-01/en.mdx": validDefault("2026-09-01"),
+            "2026-07-05/en.mdx": validDefault("2026-10-01"),
+            "2026-07-10/en.mdx": validDefault("2026-08-01"),
+        });
+        const policy = new Policy({ slug: "non-adjacent", dir, locales: ["en"] });
+        expect(policy.pending(new Date("2026-07-20T00:00:00Z"))?.revision).toBe("2026-07-10");
+        // After 2026-08-01 nothing is pending: the first revision's 2026-09-01 must never be
+        // announced even though its own adjacent successor does not supersede it.
+        expect(policy.pending(new Date("2026-08-15T00:00:00Z"))).toBeUndefined();
+        expect(policy.effective(new Date("2026-10-02T00:00:00Z"))?.revision).toBe("2026-07-10");
+    });
+
+    it("on an effectiveFrom tie the newest revision wins, matching effective()", () => {
+        const dir = makePolicyDir({
+            "2026-08-01/en.mdx": validDefault("2026-09-01"),
+            "2026-08-15/en.mdx": validDefault("2026-09-01"),
+        });
+        const policy = new Policy({ slug: "tie", dir, locales: ["en"] });
+        expect(policy.pending(new Date("2026-08-20T00:00:00Z"))?.revision).toBe("2026-08-15");
+        expect(policy.effective(new Date("2026-09-01T00:00:00Z"))?.revision).toBe("2026-08-15");
+    });
+});
+
 describe("revision", () => {
     it("finds an exact revision string", () => {
         expect(terms.revision("2026-07-07")?.effectiveFrom).toBe("2026-07-07");

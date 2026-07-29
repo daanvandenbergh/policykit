@@ -27,7 +27,7 @@
     },
     "scripts": {
         "build": "tsc -p tsconfig.build.json",
-        "test": "vitest run --passWithNoTests",
+        "test": "vitest run",
         "test:watch": "vitest",
         "typecheck": "tsc --noEmit",
         "prepublishOnly": "npm run build",
@@ -48,6 +48,9 @@
             "optional": true
         },
         "next-mdx-remote": {
+            "optional": true
+        },
+        "react": {
             "optional": true
         },
         "react-dom": {

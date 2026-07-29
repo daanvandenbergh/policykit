@@ -77,6 +77,17 @@ describe("PolicyDocument", () => {
         expect(html).toContain("The solo revision body.");
     });
 
+    it("falls back to latest() when nothing is effective yet", async () => {
+        // A far-future sole revision: effective(new Date()) is undefined under any real clock,
+        // deterministically forcing the ?? latest() branch of the live-page default.
+        const dir = makePolicyDir({
+            "9999-01-01/en.mdx": validDefault("9999-01-01", {}) + "\nOnly future body.\n",
+        });
+        const future = new Policy({ slug: "future", dir, locales: ["en"] });
+        const html = await render(await PolicyDocument({ policy: future, locale: "en" }));
+        expect(html).toContain("Only future body.");
+    });
+
     it("throws on a (revision, locale) pair without content, telling the consumer to guard", async () => {
         await expect(
             PolicyDocument({ policy: privacy, locale: "nl", revision: "2026-07-14" }),

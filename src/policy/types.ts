@@ -77,7 +77,7 @@ export interface PolicyRevision {
  */
 export interface PolicyContent {
     /** The raw MDX body (frontmatter stripped), ready for an MDX compiler. */
-    source: string;
+    readonly source: string;
     /** The `title:` of that locale's own file, if it set one (no default-locale fallback). */
-    title?: string;
+    readonly title?: string;
 }

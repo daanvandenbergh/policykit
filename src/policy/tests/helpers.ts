@@ -68,8 +68,8 @@ export function mdx(fields: Record<string, string | undefined>, body = "Body."):
 /**
  * A valid default-locale file for a revision, with optional overrides.
  *
- * @param effectiveFrom - the `effectiveFrom` value. Defaults to a date safely after any test
- *   revision date used with it.
+ * @param effectiveFrom - the `effectiveFrom` value. Defaults to `2026-07-07`, matching the
+ *   standard test revision date so `effectiveFrom >= revision` holds.
  * @param overrides - extra or overriding frontmatter fields.
  * @returns the file content.
  */

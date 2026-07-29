@@ -1,9 +1,3 @@
-import fs from "node:fs";
-import path from "node:path";
-import matter from "gray-matter";
-import { PolicyValidationError } from "./errors.js";
-import type { PolicyNotice } from "./types.js";
-
 /**
  * The filesystem layer behind `Policy`: it walks a policy directory, enforces the layout grammar
  * and every frontmatter rule, and parses each MDX file - memoizing per file until the file
@@ -11,9 +5,14 @@ import type { PolicyNotice } from "./types.js";
  * traversal guard follow scribekit's `ContentStore` (the family's proven shape) without depending
  * on it - its store is not public API and its walk hardcodes the blog layout.
  */
+import fs from "node:fs";
+import path from "node:path";
+import matter from "gray-matter";
+import { PolicyValidationError } from "./errors.js";
+import type { PolicyNotice } from "./types.js";
 
-/** A revision directory name: the zero-padded ISO date that IS the revision's identity. */
-const REVISION_DIR = /^\d{4}-\d{2}-\d{2}$/;
+/** The shape of a revision directory name / effectiveFrom value: a zero-padded ISO date. */
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 /** A locale content file inside a revision directory, capturing the locale code. */
 const LOCALE_FILE = /^([a-z]{2}(?:-[A-Z]{2})?)\.mdx$/;
@@ -26,6 +25,23 @@ const DEFAULT_LOCALE_KEYS = ["effectiveFrom", "notice", "changeSummary", "title"
 
 /** Frontmatter keys allowed in a non-default locale file - metadata lives in ONE file only. */
 const OTHER_LOCALE_KEYS = ["title"];
+
+/**
+ * Whether `value` is a zero-padded, CALENDAR-VALID UTC day. The shape regex alone is not
+ * enough for a legal package: `2026-02-30` matches it, sorts lexicographically like a real
+ * date, and would enter the evidence chain as a day that does not exist - so every revision
+ * date and effectiveFrom must also round-trip through a real UTC date.
+ *
+ * @param value - the candidate `YYYY-MM-DD` string.
+ * @returns true when the string is a real calendar day.
+ */
+function isCalendarDay(value: string): boolean {
+    if (!ISO_DAY.test(value)) {
+        return false;
+    }
+    const parsed = new Date(`${value}T00:00:00Z`);
+    return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
 
 /**
  * One parsed policy MDX file: the body plus its validated frontmatter. The metadata fields are
@@ -45,8 +61,10 @@ export interface ParsedPolicyFile {
 }
 
 /**
- * One cached parse, with the file stats it was built from. `mtimeMs` catches the ordinary edit;
- * `size` catches a rewrite too fast for the filesystem's timestamp granularity to notice.
+ * One cached parse, with the file stats it was built from. `mtimeMs` catches the ordinary
+ * edit; `size` catches a rewrite too fast for the filesystem's timestamp granularity to
+ * notice, whenever the length changed (a same-size, same-timestamp rewrite is the inherent
+ * blind spot of stat-based caching - the tradeoff every build tool makes).
  */
 export interface CacheEntry {
     /** The file's `mtimeMs` at the time it was parsed. */
@@ -80,7 +98,7 @@ export interface LoadedRevision {
 export interface LoadInput {
     /** The policy's slug, for error messages. */
     slug: string;
-    /** The absolute policy directory. */
+    /** The absolute, normalised policy directory (no trailing separator). */
     dir: string;
     /** The configured locales. */
     locales: readonly string[];
@@ -98,9 +116,10 @@ export interface LoadInput {
  * Resolves a policy-relative file path to an absolute path confined to the policy directory.
  * The single path-traversal guard: every read funnels through it, so no crafted name can ever
  * resolve a file outside `dir` (the walk only feeds it `readdir` results today, but the guard
- * makes that safety structural rather than an assumption about callers).
+ * makes that safety structural rather than an assumption about callers). Requires `dir` to be
+ * normalised (no trailing separator) - the `Policy` constructor guarantees that.
  *
- * @param dir - the absolute policy directory.
+ * @param dir - the absolute, normalised policy directory.
  * @param file - the file path relative to `dir`.
  * @returns the absolute path when it stays inside `dir`, else `undefined`.
  */
@@ -125,12 +144,14 @@ export function resolveWithin(dir: string, file: string): string | undefined {
  * Enforces the whole grammar and every frontmatter rule; any breach throws a
  * {@link PolicyValidationError} naming the offending entry and field:
  *
- * - every policy-root entry is a `YYYY-MM-DD/` revision directory, except `drafts/` which is
- *   skipped wholesale (the one sanctioned parking spot for work in progress);
- * - every file inside a revision directory is `<locale>.mdx` for a CONFIGURED locale;
+ * - every policy-root entry is a `YYYY-MM-DD/` revision directory naming a REAL calendar day,
+ *   except `drafts/` which is skipped wholesale (the one sanctioned parking spot for work in
+ *   progress);
+ * - every file inside a revision directory is `<locale>.mdx` for a CONFIGURED locale, and its
+ *   MDX body is non-empty (frontmatter alone is not a document);
  * - the default locale exists for every revision and carries the required frontmatter
- *   (`effectiveFrom` a date `>= revision`, `notice` in the allowed set, `changeSummary`
- *   non-empty); non-default files may carry only an optional `title`;
+ *   (`effectiveFrom` a real calendar day `>= revision`, `notice` in the allowed set,
+ *   `changeSummary` non-empty); non-default files may carry only an optional `title`;
  * - locale contiguity: a non-default locale, once introduced at revision R, exists for every
  *   revision after R (it may be absent before R - a locale added later never demands backdated
  *   translations of the archive);
@@ -142,22 +163,36 @@ export function resolveWithin(dir: string, file: string): string | undefined {
  * @throws PolicyValidationError on the first rule breach.
  */
 export function loadPolicy(input: LoadInput): LoadedRevision[] {
-    const { slug, dir, locales, defaultLocale, cache } = input;
-    if (!fs.existsSync(dir)) {
-        throw new PolicyValidationError(
-            `Policy "${slug}": directory does not exist: ${dir}`,
-            { slug },
-        );
+    const { slug, dir, locales, defaultLocale } = input;
+    let rootEntries: fs.Dirent[];
+    try {
+        rootEntries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === "ENOENT") {
+            throw new PolicyValidationError(
+                `Policy "${slug}": directory does not exist: ${dir}`,
+                { slug },
+            );
+        }
+        if (code === "ENOTDIR") {
+            throw new PolicyValidationError(
+                `Policy "${slug}": dir is not a directory: ${dir}`,
+                { slug },
+            );
+        }
+        throw error;
     }
     const revisionNames: string[] = [];
-    for (const dirent of fs.readdirSync(dir, { withFileTypes: true })) {
+    for (const dirent of rootEntries) {
         if (dirent.name === "drafts" && dirent.isDirectory()) {
             continue;
         }
-        if (!dirent.isDirectory() || !REVISION_DIR.test(dirent.name)) {
+        if (!dirent.isDirectory() || !isCalendarDay(dirent.name)) {
             throw new PolicyValidationError(
                 `Policy "${slug}": unexpected entry "${dirent.name}" in ${dir} - every entry ` +
-                    `must be a YYYY-MM-DD revision directory (or the ignored "drafts/").`,
+                    `must be a revision directory named after a real YYYY-MM-DD calendar day ` +
+                    `(or the ignored "drafts/").`,
                 { slug, file: dirent.name },
             );
         }
@@ -213,7 +248,7 @@ export function loadPolicy(input: LoadInput): LoadedRevision[] {
  * @throws PolicyValidationError on any breach, naming the file.
  */
 function loadRevision(input: LoadInput, revision: string): LoadedRevision {
-    const { slug, dir, locales, defaultLocale, cache } = input;
+    const { slug, dir, locales, defaultLocale } = input;
     const present = new Map<string, string>();
     for (const dirent of fs.readdirSync(path.join(dir, revision), { withFileTypes: true })) {
         const rel = `${revision}/${dirent.name}`;
@@ -236,7 +271,8 @@ function loadRevision(input: LoadInput, revision: string): LoadedRevision {
         }
         present.set(locale, dirent.name);
     }
-    if (!present.has(defaultLocale)) {
+    const defaultFile = present.get(defaultLocale);
+    if (defaultFile === undefined) {
         throw new PolicyValidationError(
             `Policy "${slug}": revision ${revision} is missing its default-locale file ` +
                 `"${revision}/${defaultLocale}.mdx" - the default locale carries the ` +
@@ -252,13 +288,27 @@ function loadRevision(input: LoadInput, revision: string): LoadedRevision {
             files.set(locale, readParsed(input, `${revision}/${name}`, locale === defaultLocale));
         }
     }
-    const meta = files.get(defaultLocale) as Required<Pick<ParsedPolicyFile, "effectiveFrom" | "notice" | "changeSummary">> & ParsedPolicyFile;
+    // Runtime narrow instead of a cast: validateFrontmatter guarantees these fields whenever
+    // isDefault was true, but that guarantee lives a function away - the narrow keeps the type
+    // system honest across refactors instead of asserting over it.
+    const meta = files.get(defaultLocale);
+    if (
+        meta?.effectiveFrom === undefined ||
+        meta.notice === undefined ||
+        meta.changeSummary === undefined
+    ) {
+        throw new PolicyValidationError(
+            `Policy "${slug}": "${revision}/${defaultFile}" lost its revision metadata after ` +
+                `parsing - this is a policykit internal error, please report it.`,
+            { slug, file: `${revision}/${defaultFile}` },
+        );
+    }
     if (meta.effectiveFrom < revision) {
         throw new PolicyValidationError(
-            `Policy "${slug}": "${revision}/${present.get(defaultLocale)}" has effectiveFrom ` +
+            `Policy "${slug}": "${revision}/${defaultFile}" has effectiveFrom ` +
                 `${meta.effectiveFrom}, which is before its revision date ${revision} - a ` +
                 `revision cannot take effect before it exists.`,
-            { slug, file: `${revision}/${present.get(defaultLocale)}`, field: "effectiveFrom" },
+            { slug, file: `${revision}/${defaultFile}`, field: "effectiveFrom" },
         );
     }
     return {
@@ -275,7 +325,9 @@ function loadRevision(input: LoadInput, revision: string): LoadedRevision {
  * Reads, frontmatter-parses, and validates one file, serving the memoized value when the file's
  * `(mtimeMs, size)` is unchanged since it was cached. The cache is written only after validation
  * succeeds, so a failed parse caches nothing and the next call retries (and re-throws) rather
- * than replaying a half-built state.
+ * than replaying a half-built state. Syntactically invalid YAML is wrapped into a
+ * {@link PolicyValidationError} naming the file - a stray colon in frontmatter is the single
+ * most likely authoring mistake, and the error convention promises the file name.
  *
  * @param input - the policy's config and cache.
  * @param rel - the file path relative to the policy directory.
@@ -299,8 +351,21 @@ function readParsed(input: LoadInput, rel: string, isDefault: boolean): ParsedPo
     if (hit && hit.mtimeMs === stat.mtimeMs && hit.size === stat.size) {
         return hit.value;
     }
-    const { content, data } = matter(fs.readFileSync(abs, "utf8"));
-    const value = validateFrontmatter(slug, rel, content, data as Record<string, unknown>, isDefault);
+    let parsed: ReturnType<typeof matter>;
+    try {
+        // The empty options object is load-bearing: without it gray-matter serves repeated
+        // content from a hidden module-level cache whose hit path drops the `.matter` raw-text
+        // property that the effectiveFrom rollover check reads. Our own (mtimeMs, size) cache
+        // makes gray-matter's redundant anyway.
+        parsed = matter(fs.readFileSync(abs, "utf8"), {});
+    } catch (error) {
+        throw new PolicyValidationError(
+            `Policy "${slug}": "${rel}" has invalid frontmatter YAML: ` +
+                `${error instanceof Error ? error.message : String(error)}`,
+            { slug, file: rel },
+        );
+    }
+    const value = validateFrontmatter(slug, rel, parsed, isDefault);
     cache.set(abs, { mtimeMs: stat.mtimeMs, size: stat.size, value });
     return value;
 }
@@ -308,14 +373,16 @@ function readParsed(input: LoadInput, rel: string, isDefault: boolean): ParsedPo
 /**
  * Validates one file's frontmatter against the contract: the default-locale file carries the
  * revision's required metadata (and may add `title`); every other file may carry ONLY an
- * optional `title` - metadata duplicated across locales is metadata that drifts. Hand-rolled
+ * optional `title` - metadata duplicated across locales is metadata that drifts. The MDX body
+ * must be non-empty in every file: the body IS the legal text, so a file that is frontmatter
+ * with no content (a botched merge, a forgotten paste) must fail loudly rather than validate
+ * green and ship as an empty legal document. Hand-rolled
  * coercion rather than a schema library: repo-authored frontmatter is not an untrusted boundary,
  * and each check can name the file and field precisely.
  *
  * @param slug - the policy slug, for error messages.
  * @param rel - the file path relative to the policy directory, for error messages.
- * @param content - the MDX body.
- * @param data - the raw frontmatter object from `gray-matter`.
+ * @param parsed - the `gray-matter` result (body, data, and the raw frontmatter text).
  * @param isDefault - whether this is the revision's default-locale file.
  * @returns the validated parse.
  * @throws PolicyValidationError naming the file and field on any breach.
@@ -323,64 +390,99 @@ function readParsed(input: LoadInput, rel: string, isDefault: boolean): ParsedPo
 function validateFrontmatter(
     slug: string,
     rel: string,
-    content: string,
-    data: Record<string, unknown>,
+    parsed: { content: string; data: unknown; matter: string },
     isDefault: boolean,
 ): ParsedPolicyFile {
-    const allowed = isDefault ? DEFAULT_LOCALE_KEYS : OTHER_LOCALE_KEYS;
-    const fail = (field: string, message: string): never => {
+    // The explicit annotation (not just the arrow's return type) is what lets control-flow
+    // analysis treat each fail() call as terminal, so the checks below narrow without casts.
+    const fail: (field: string, message: string) => never = (field, message) => {
         throw new PolicyValidationError(
             `Policy "${slug}": "${rel}" frontmatter field "${field}" ${message}`,
             { slug, file: rel, field },
         );
     };
-    for (const key of Object.keys(data)) {
+    const { data } = parsed;
+    // A prototype check, not just typeof-object: YAML resolves a bare `2026-07-07` scalar to a
+    // Date (and `!!binary` to a Buffer) - objects with zero own keys that would otherwise read
+    // as empty-but-valid frontmatter instead of failing as non-mapping. Arrays fail it too.
+    if (
+        typeof data !== "object" ||
+        data === null ||
+        Object.getPrototypeOf(data) !== Object.prototype
+    ) {
+        throw new PolicyValidationError(
+            `Policy "${slug}": "${rel}" frontmatter must be a YAML mapping of key: value pairs.`,
+            { slug, file: rel },
+        );
+    }
+    if (parsed.content.trim() === "") {
+        throw new PolicyValidationError(
+            `Policy "${slug}": "${rel}" has an empty MDX body - the body IS the legal text, so ` +
+                `a file with frontmatter but no content is a mistake, not a document.`,
+            { slug, file: rel },
+        );
+    }
+    const record = data as Record<string, unknown>;
+    const allowed = isDefault ? DEFAULT_LOCALE_KEYS : OTHER_LOCALE_KEYS;
+    for (const key of Object.keys(record)) {
         if (!allowed.includes(key)) {
             fail(key, `is not allowed here - allowed keys: ${allowed.join(", ")}.`);
         }
     }
-    const title = data["title"];
-    if (title !== undefined && (typeof title !== "string" || title.trim() === "")) {
-        fail("title", "must be a non-empty string when present.");
+    const file: ParsedPolicyFile = { source: parsed.content };
+    const rawTitle = record["title"];
+    if (rawTitle !== undefined) {
+        if (typeof rawTitle !== "string" || rawTitle.trim() === "") {
+            fail("title", "must be a non-empty string when present.");
+        }
+        file.title = rawTitle;
     }
-    const file: ParsedPolicyFile = { source: content, title: title as string | undefined };
     if (!isDefault) {
         return file;
     }
-    const effectiveFrom = coerceIsoDate(data["effectiveFrom"]);
+    const effectiveFrom = coerceIsoDate(record["effectiveFrom"], parsed.matter);
     if (effectiveFrom === undefined) {
-        fail("effectiveFrom", "is required and must be a YYYY-MM-DD date.");
+        fail("effectiveFrom", "is required and must be a real YYYY-MM-DD calendar date.");
     }
-    const notice = data["notice"];
-    if (typeof notice !== "string" || !(NOTICES as readonly string[]).includes(notice)) {
+    const rawNotice = record["notice"];
+    const notice = NOTICES.find((tier) => tier === rawNotice);
+    if (notice === undefined) {
         fail("notice", `is required and must be one of: ${NOTICES.join(", ")}.`);
     }
-    const changeSummary = data["changeSummary"];
+    const changeSummary = record["changeSummary"];
     if (typeof changeSummary !== "string" || changeSummary.trim() === "") {
         fail("changeSummary", "is required and must be a non-empty string.");
     }
     file.effectiveFrom = effectiveFrom;
-    file.notice = notice as PolicyNotice;
-    file.changeSummary = changeSummary as string;
+    file.notice = notice;
+    file.changeSummary = changeSummary;
     return file;
 }
 
 /**
- * Coerces a frontmatter value to a zero-padded `YYYY-MM-DD` string, or `undefined` when it is
- * not a plain date. Two shapes are accepted because YAML produces both: a string that already
- * matches (the value was quoted), and a `Date` at exactly UTC midnight (what an unquoted
- * `2026-08-12` parses to under the YAML timestamp rule). A `Date` carrying a time component is
- * rejected - the whole package is day-granular by design.
+ * Coerces a frontmatter value to a zero-padded, calendar-valid `YYYY-MM-DD` string, or
+ * `undefined` when it is not a plain real date. Two shapes are accepted because YAML produces
+ * both: a string (the value was quoted), and a `Date` at exactly UTC midnight (what an
+ * unquoted `2026-08-12` parses to under the YAML timestamp rule). A `Date` carrying a time
+ * component is rejected - the whole package is day-granular by design.
+ *
+ * The `Date` branch carries a rollover trap the object alone cannot reveal: YAML resolves a
+ * calendar-invalid `2026-13-45` by ROLLING IT OVER to a real but different day (2027-02-14),
+ * so the produced day is required to appear literally in the raw frontmatter text the author
+ * wrote - a rolled-over date never does, and is rejected instead of silently binding a legal
+ * document on a day nobody chose.
  *
  * @param value - the raw frontmatter value.
+ * @param raw - the file's raw frontmatter text, for the rollover cross-check.
  * @returns the `YYYY-MM-DD` string, or `undefined` when invalid.
  */
-function coerceIsoDate(value: unknown): string | undefined {
-    if (typeof value === "string" && REVISION_DIR.test(value)) {
-        return value;
+function coerceIsoDate(value: unknown, raw: string): string | undefined {
+    if (typeof value === "string") {
+        return isCalendarDay(value) ? value : undefined;
     }
     if (value instanceof Date && value.getTime() % 86_400_000 === 0) {
-        return value.toISOString().slice(0, 10);
+        const day = value.toISOString().slice(0, 10);
+        return raw.includes(day) ? day : undefined;
     }
     return undefined;
 }

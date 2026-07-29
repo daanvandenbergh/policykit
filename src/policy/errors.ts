@@ -43,7 +43,8 @@ export class PolicyValidationError extends Error {
 
     /**
      * @param message - the human-readable violation, naming the entry and field.
-     * @param details - the same location facts, structured; see {@link PolicyValidationErrorDetails}.
+     * @param details - the same location facts, structured; see
+     *   {@link PolicyValidationErrorDetails}.
      */
     constructor(message: string, details: PolicyValidationErrorDetails) {
         super(message);

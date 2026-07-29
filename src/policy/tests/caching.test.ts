@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { Policy } from "../policy.js";
 import { makePolicyDir, validDefault } from "./helpers.js";
 
@@ -30,10 +30,31 @@ describe("parse cache", () => {
         expect(policy.latest().changeSummary).toBe("After.");
     });
 
-    it("serves identical results across calls while the file is unchanged", () => {
+    it("serves the cached parse while the file is unchanged - no second read", () => {
         const dir = makePolicyDir({ "2026-07-07/en.mdx": validDefault() });
         const policy = new Policy({ slug: "cached", dir, locales: ["en"] });
-        expect(policy.revisions()).toEqual(policy.revisions());
+        const first = policy.revisions();
+        const spy = vi.spyOn(fs, "readFileSync");
+        try {
+            expect(policy.revisions()).toEqual(first);
+            expect(spy).not.toHaveBeenCalled();
+        } finally {
+            spy.mockRestore();
+        }
+    });
+
+    it("reparses when only the SIZE changed - a rewrite too fast for the timestamp to notice", () => {
+        const dir = makePolicyDir({
+            "2026-07-07/en.mdx": validDefault("2026-07-07", { changeSummary: "Before." }),
+        });
+        const abs = path.join(dir, "2026-07-07/en.mdx");
+        const frozen = new Date("2026-07-07T00:00:00Z");
+        fs.utimesSync(abs, frozen, frozen);
+        const policy = new Policy({ slug: "sized", dir, locales: ["en"] });
+        expect(policy.latest().changeSummary).toBe("Before.");
+        fs.writeFileSync(abs, validDefault("2026-07-07", { changeSummary: "After, and longer." }));
+        fs.utimesSync(abs, frozen, frozen);
+        expect(policy.latest().changeSummary).toBe("After, and longer.");
     });
 
     it("never caches a failed parse - errors re-throw every call, and a fix heals in place", () => {

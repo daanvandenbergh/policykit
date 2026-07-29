@@ -22,6 +22,9 @@ calls no test can catch.
 - **`notice` is the legal decision, recorded per revision:** `none` = non-material, or forced by
   law/security; `notify` = materially reduces what a customer gets; `reconsent` = users must
   expressly accept again. Unsure -> the stricter tier.
+- **A revision that supersedes a still-pending one carries the surviving obligations itself.**
+  policykit never announces or gates consent on a superseded revision (its text never binds), so
+  if the superseded change survives in the new text, the new revision records the stricter tier.
 - **`effectiveFrom` honours the notice window your own terms promise** (the package only checks
   `>= revision`). Shipping an adverse change dated tomorrow breaches your contract silently.
 - **`changeSummary` says what changed and why the tier is right** - one plain-English sentence. It is

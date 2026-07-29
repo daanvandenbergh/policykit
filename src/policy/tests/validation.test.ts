@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { PolicyValidationError } from "../errors.js";
+import { resolveWithin } from "../load.js";
 import { Policy, assertValidAll } from "../policy.js";
 import { fixture, makePolicyDir, mdx, validDefault } from "./helpers.js";
 
@@ -72,6 +73,17 @@ describe("layout grammar", () => {
         expect(error.file).toBe("2026-8-15");
     });
 
+    it("rejects a calendar-impossible revision directory", () => {
+        const dir = makePolicyDir({ "2026-02-30/en.mdx": validDefault("2026-03-01") });
+        expectViolation(() => policyAt(dir).revisions(), '"2026-02-30"');
+    });
+
+    it("accepts a dir configured with a trailing separator", () => {
+        const dir = makePolicyDir({ "2026-07-07/en.mdx": validDefault() });
+        const policy = new Policy({ slug: "trailing", dir: dir + path.sep, locales: ["en"] });
+        expect(policy.latest().revision).toBe("2026-07-07");
+    });
+
     it("rejects a stray file at the policy root, naming it", () => {
         const dir = makePolicyDir({
             "2026-07-07/en.mdx": validDefault(),
@@ -102,6 +114,40 @@ describe("layout grammar", () => {
         expectViolation(() => policyAt(dir).revisions(), '"2026-07-07/fr.mdx"', 'locale "fr"');
     });
 
+    it("supports region-variant locales (nl-NL) end to end", () => {
+        const dir = makePolicyDir({
+            "2026-07-07/en.mdx": validDefault(),
+            "2026-07-07/nl-NL.mdx": mdx({ title: "Voorwaarden" }, "Regiotekst."),
+        });
+        const policy = new Policy({ slug: "region", dir, locales: ["en", "nl-NL"] });
+        expect(policy.revisions()[0].locales).toEqual(["en", "nl-NL"]);
+        expect(policy.content("2026-07-07", "nl-NL")?.source).toContain("Regiotekst.");
+    });
+
+    it("rejects a wrong-cased locale filename", () => {
+        const dir = makePolicyDir({
+            "2026-07-07/en.mdx": validDefault(),
+            "2026-07-07/NL-nl.mdx": mdx({ title: "Voorwaarden" }),
+        });
+        expectViolation(
+            () => new Policy({ slug: "region", dir, locales: ["en", "nl-NL"] }).revisions(),
+            '"2026-07-07/NL-nl.mdx"',
+        );
+    });
+
+    it("rejects a subdirectory inside a revision directory", () => {
+        const dir = makePolicyDir({
+            "2026-07-07/en.mdx": validDefault(),
+            "2026-07-07/old/en.mdx": "archived copy",
+        });
+        expectViolation(() => policyAt(dir).revisions(), '"2026-07-07/old"');
+    });
+
+    it("rejects a stray FILE named drafts at the root (only the drafts directory is ignored)", () => {
+        const dir = makePolicyDir({ "2026-07-07/en.mdx": validDefault(), "drafts": "notes" });
+        expectViolation(() => policyAt(dir).revisions(), '"drafts"');
+    });
+
     it("rejects a revision missing its default-locale file", () => {
         const dir = makePolicyDir({ "2026-07-07/nl.mdx": mdx({ title: "Voorwaarden" }) });
         expectViolation(() => policyAt(dir).revisions(), "default-locale", "2026-07-07/en.mdx");
@@ -110,6 +156,15 @@ describe("layout grammar", () => {
     it("rejects a policy directory with no revisions, and a missing directory", () => {
         expectViolation(() => policyAt(makePolicyDir({})).revisions(), "no revisions");
         expectViolation(() => policyAt("/nonexistent/policykit-nowhere").revisions(), "does not exist");
+    });
+
+    it("rejects a dir that points at a file, as a PolicyValidationError naming it", () => {
+        const dir = makePolicyDir({ "2026-07-07/en.mdx": validDefault() });
+        const error = expectViolation(
+            () => policyAt(path.join(dir, "2026-07-07/en.mdx")).revisions(),
+            "not a directory",
+        );
+        expect(error.slug).toBe("test-policy");
     });
 });
 
@@ -135,6 +190,48 @@ describe("frontmatter contract", () => {
         expectViolation(() => policyAt(missing).revisions(), '"effectiveFrom"');
         const malformed = makePolicyDir({ "2026-07-07/en.mdx": validDefault("soon") });
         expectViolation(() => policyAt(malformed).revisions(), '"effectiveFrom"');
+        // Unpadded dates stay YAML strings (the date-only timestamp form requires zero
+        // padding), so they must fail the calendar check - the contract is zero-padded ISO.
+        const unpadded = makePolicyDir({ "2026-07-07/en.mdx": validDefault("2026-8-5") });
+        expectViolation(() => policyAt(unpadded).revisions(), '"effectiveFrom"');
+    });
+
+    it("rejects a calendar-impossible effectiveFrom, quoted or rolled over by YAML", () => {
+        const quoted = makePolicyDir({ "2026-07-07/en.mdx": validDefault('"2026-02-30"') });
+        expect(expectViolation(() => policyAt(quoted).revisions()).field).toBe("effectiveFrom");
+        // Unquoted, YAML's timestamp rule ROLLS an impossible date over to a real but
+        // different day (2026-13-45 becomes 2027-02-14) - the loader must reject it rather
+        // than silently bind a legal document on a day nobody wrote.
+        const rolled = makePolicyDir({ "2026-07-07/en.mdx": validDefault("2026-13-45") });
+        expect(expectViolation(() => policyAt(rolled).revisions()).field).toBe("effectiveFrom");
+    });
+
+    it("wraps malformed frontmatter YAML in a PolicyValidationError naming the file", () => {
+        const dir = makePolicyDir({
+            "2026-07-07/en.mdx": "---\nnotice: [unclosed\n---\n\nBody.\n",
+        });
+        const error = expectViolation(
+            () => policyAt(dir).revisions(),
+            '"2026-07-07/en.mdx"',
+            "frontmatter YAML",
+        );
+        expect(error.file).toBe("2026-07-07/en.mdx");
+    });
+
+    it("rejects non-mapping frontmatter", () => {
+        const dir = makePolicyDir({
+            "2026-07-07/en.mdx": validDefault(),
+            "2026-07-07/nl.mdx": "---\n42\n---\n\nBody.\n",
+        });
+        expectViolation(() => policyAt(dir).revisions(), '"2026-07-07/nl.mdx"', "mapping");
+        // A bare date scalar resolves to a Date OBJECT under YAML's timestamp rule - an object
+        // with zero own keys, which would read as empty-but-valid frontmatter. It must still
+        // fail as non-mapping, never validate green.
+        const dateScalar = makePolicyDir({
+            "2026-07-07/en.mdx": validDefault(),
+            "2026-07-07/nl.mdx": "---\n2026-07-07\n---\n\nBody.\n",
+        });
+        expectViolation(() => policyAt(dateScalar).revisions(), '"2026-07-07/nl.mdx"', "mapping");
     });
 
     it("rejects a missing or unknown notice tier", () => {
@@ -158,6 +255,66 @@ describe("frontmatter contract", () => {
             "2026-07-07/en.mdx": mdx({ effectiveFrom: "2026-07-07", notice: "none" }),
         });
         expectViolation(() => policyAt(missing).revisions(), '"changeSummary"');
+    });
+
+    it("rejects an effectiveFrom carrying a time component - the package is day-granular", () => {
+        const dir = makePolicyDir({ "2026-07-07/en.mdx": validDefault("2026-07-07T12:00:00Z") });
+        const error = expectViolation(() => policyAt(dir).revisions(), '"effectiveFrom"');
+        expect(error.field).toBe("effectiveFrom");
+    });
+
+    it("rejects wrong-typed frontmatter values, naming the field", () => {
+        const cases: [string, string][] = [
+            ["title", validDefault("2026-07-07", { title: "123" })],
+            ["changeSummary", validDefault("2026-07-07", { changeSummary: "42" })],
+            ["notice", validDefault("2026-07-07", { notice: "true" })],
+        ];
+        for (const [field, content] of cases) {
+            const dir = makePolicyDir({ "2026-07-07/en.mdx": content });
+            expect(expectViolation(() => policyAt(dir).revisions()).field).toBe(field);
+        }
+    });
+
+    it("rejects an empty title in either file kind", () => {
+        const def = makePolicyDir({ "2026-07-07/en.mdx": validDefault("2026-07-07", { title: '""' }) });
+        expect(expectViolation(() => policyAt(def).revisions()).field).toBe("title");
+        const other = makePolicyDir({
+            "2026-07-07/en.mdx": validDefault(),
+            "2026-07-07/nl.mdx": mdx({ title: '""' }),
+        });
+        const error = expectViolation(() => policyAt(other).revisions(), "2026-07-07/nl.mdx");
+        expect(error.field).toBe("title");
+    });
+
+    it("rejects an empty MDX body in either file kind - frontmatter alone is not a document", () => {
+        const def = makePolicyDir({
+            "2026-07-07/en.mdx": mdx({ effectiveFrom: "2026-07-07", notice: "none", changeSummary: '"A change."' }, ""),
+        });
+        const error = expectViolation(() => policyAt(def).revisions(), "empty MDX body", "2026-07-07/en.mdx");
+        expect(error.file).toBe("2026-07-07/en.mdx");
+        const other = makePolicyDir({
+            "2026-07-07/en.mdx": validDefault(),
+            "2026-07-07/nl.mdx": mdx({ title: '"Voorwaarden"' }, ""),
+        });
+        expectViolation(() => policyAt(other).revisions(), "empty MDX body", "2026-07-07/nl.mdx");
+    });
+
+    it("honours a non-en defaultLocale for metadata placement", () => {
+        const green = makePolicyDir({
+            "2026-07-07/nl.mdx": validDefault("2026-07-07", { title: "Voorwaarden" }),
+            "2026-07-07/en.mdx": mdx({ title: "Terms" }),
+        });
+        const dutch = new Policy({ slug: "dutch", dir: green, locales: ["en", "nl"], defaultLocale: "nl" });
+        expect(dutch.latest().title).toBe("Voorwaarden");
+        const red = makePolicyDir({
+            "2026-07-07/en.mdx": validDefault(),
+            "2026-07-07/nl.mdx": mdx({ title: "Voorwaarden" }),
+        });
+        const error = expectViolation(
+            () => new Policy({ slug: "dutch", dir: red, locales: ["en", "nl"], defaultLocale: "nl" }).revisions(),
+            "2026-07-07/en.mdx",
+        );
+        expect(error.field).toBe("effectiveFrom");
     });
 
     it("rejects an unknown frontmatter key in the default-locale file", () => {
@@ -198,6 +355,18 @@ describe("locale contiguity", () => {
     it("allows a configured locale that no revision has yet (its introduction is pending)", () => {
         const dir = makePolicyDir({ "2026-07-07/en.mdx": validDefault() });
         expect(policyAt(dir).revisions()).toHaveLength(1);
+    });
+});
+
+describe("resolveWithin", () => {
+    it("confines every resolved path to the policy directory", () => {
+        expect(resolveWithin("/policies/terms", "2026-07-07/en.mdx")).toBe(
+            path.join("/policies/terms", "2026-07-07/en.mdx"),
+        );
+        expect(resolveWithin("/policies/terms", "../secrets.txt")).toBeUndefined();
+        expect(resolveWithin("/policies/terms", "../terms-evil/en.mdx")).toBeUndefined();
+        expect(resolveWithin("/policies/terms", "/etc/passwd")).toBeUndefined();
+        expect(resolveWithin("/policies/terms", "a/../../x")).toBeUndefined();
     });
 });
 

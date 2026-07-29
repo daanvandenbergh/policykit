@@ -18,6 +18,31 @@ function isoDay(now: Date): string {
 }
 
 /**
+ * Flags the revisions that will NEVER bind: a revision is superseded when any NEWER revision
+ * takes effect on or before its own effectiveFrom day - by the newest-binds rule that newer
+ * revision is always selected from the superseded one's effective day onward, so the
+ * superseded text never binds for a single moment. This is legal and expected (an immediate
+ * law/security revision shipped while an earlier revision's notice window is still running);
+ * superseded revisions stay in the archive, but `pending()` and `noticeQueue` exclude them -
+ * announcing a text that will never bind is misinformation in a legal context.
+ *
+ * @param revisions - the revisions, ascending by revision date.
+ * @returns one flag per revision, `true` = superseded (never binds).
+ */
+function supersededFlags(revisions: readonly { effectiveFrom: string }[]): boolean[] {
+    const flags = new Array<boolean>(revisions.length);
+    let soonestNewer: string | undefined;
+    for (let i = revisions.length - 1; i >= 0; i--) {
+        const effectiveFrom = revisions[i].effectiveFrom;
+        flags[i] = soonestNewer !== undefined && soonestNewer <= effectiveFrom;
+        if (soonestNewer === undefined || effectiveFrom < soonestNewer) {
+            soonestNewer = effectiveFrom;
+        }
+    }
+    return flags;
+}
+
+/**
  * Converts an internal loaded revision to the public {@link PolicyRevision} shape (dropping the
  * parsed file map, which only `Policy.content` serves from).
  *
@@ -88,7 +113,9 @@ export class Policy {
             );
         }
         this.slug = config.slug;
-        this.dir = config.dir;
+        // Normalised so a trailing separator in the config (harmless to the walk) can never
+        // make the traversal guard's prefix check reject every valid file.
+        this.dir = path.resolve(config.dir);
         this.locales = [...config.locales];
         this.defaultLocale = defaultLocale;
     }
@@ -122,10 +149,11 @@ export class Policy {
     }
 
     /**
-     * The newest revision by revision date - what the live policy page shows (alongside a
-     * pending banner when one exists) and what signup text is. Distinct from
-     * {@link Policy.effective}: during a notice window `latest()` is published but not yet
-     * binding.
+     * The newest revision by revision date - the top of the archive, and the live page's
+     * fallback before any revision is effective (the quickstart's `effective(now) ?? latest()`).
+     * Distinct from {@link Policy.effective}: during a notice window `latest()` is published
+     * but not yet binding, so it is never what a consent gate compares against or what an
+     * acceptance stamps.
      *
      * @returns the newest revision.
      * @throws PolicyValidationError when the directory is invalid (it always holds at least one
@@ -157,9 +185,14 @@ export class Policy {
     }
 
     /**
-     * The published-but-not-yet-effective revision at `now` - what drives the "takes effect on
-     * {date}" banner. When several revisions are pending at once (rare), the one taking effect
-     * SOONEST is returned, since that is what the banner announces next.
+     * The published, not-yet-effective revision that WILL actually bind next at `now` - what
+     * drives the "takes effect on {date}" banner. When several revisions are pending at once
+     * (rare), the one taking effect soonest is returned, since that is what the banner
+     * announces next; on an effectiveFrom tie the newest revision wins, matching
+     * {@link Policy.effective}. A revision superseded before its effective day (a newer
+     * revision with an effectiveFrom on or before its own - see the immediate law/security
+     * scenario in the README) is NEVER returned: its text will never bind, and announcing it
+     * would be misinformation.
      *
      * @param now - the instant to evaluate, reduced to its UTC calendar day.
      * @returns the next revision to take effect, or `undefined` when nothing is pending.
@@ -167,13 +200,16 @@ export class Policy {
      */
     pending(now: Date): PolicyRevision | undefined {
         const today = isoDay(now);
-        let next: LoadedRevision | undefined;
-        for (const rev of this.load()) {
-            if (rev.effectiveFrom > today && (next === undefined || rev.effectiveFrom < next.effectiveFrom)) {
-                next = rev;
+        const revs = this.load();
+        const superseded = supersededFlags(revs);
+        // Non-superseded revisions have strictly increasing effectiveFrom by construction, so
+        // the first one past today is the soonest to bind.
+        for (let i = 0; i < revs.length; i++) {
+            if (!superseded[i] && revs[i].effectiveFrom > today) {
+                return toPublic(revs[i]);
             }
         }
-        return next === undefined ? undefined : toPublic(next);
+        return undefined;
     }
 
     /**
@@ -181,12 +217,12 @@ export class Policy {
      * param), so a miss returns `undefined` and never throws - the consumer 404s. The corpus
      * itself is still validated: a malformed directory throws regardless of the input.
      *
-     * @param date - the candidate revision string (e.g. `"2026-07-28"`).
+     * @param revision - the candidate revision string (e.g. `"2026-07-28"`).
      * @returns the revision, or `undefined` when no revision has exactly that date string.
      * @throws PolicyValidationError when the directory is invalid.
      */
-    revision(date: string): PolicyRevision | undefined {
-        const rev = this.load().find((entry) => entry.revision === date);
+    revision(revision: string): PolicyRevision | undefined {
+        const rev = this.load().find((entry) => entry.revision === revision);
         return rev === undefined ? undefined : toPublic(rev);
     }
 
@@ -227,9 +263,11 @@ export class Policy {
 }
 
 /**
- * Every revision across `policies` that owes user-facing notice (`notice !== "none"`) and whose
- * `effectiveFrom` is within `horizonDays` (default 60) before `now` or still in the future.
- * Ordered by policy, then revision ascending.
+ * Every revision across `policies` that owes user-facing notice (`notice !== "none"`), will
+ * actually bind (or already did), and whose `effectiveFrom` is within `horizonDays` (default
+ * 60) before `now` or still in the future. Ordered by policy, then revision ascending. A
+ * revision superseded before its effective day (a newer revision took effect on or before its
+ * effectiveFrom) is never queued - notice about a text that will never bind is misinformation.
  *
  * THE HORIZON IS LOAD-BEARING, not an optimization: consumers dedupe notice delivery on rows
  * that a TTL eventually sweeps (SwiftGuard: 90 days). An unbounded queue would re-notify every
@@ -238,23 +276,33 @@ export class Policy {
  * their dedupe rows do.
  *
  * @param policies - the policies to scan.
- * @param options - `now` (reduced to its UTC day) and the optional `horizonDays` (default 60).
+ * @param options - `now` (reduced to its UTC day) and the optional `horizonDays` (default 60,
+ *   must be a finite, non-negative number - a negative horizon would silently drop owed
+ *   notices, so it throws instead).
  * @returns each owed `{ policy, revision }` pair.
  * @throws PolicyValidationError when any policy's directory is invalid.
+ * @throws TypeError on a non-finite or negative `horizonDays`.
  */
 export function noticeQueue(
     policies: readonly Policy[],
     options: { now: Date; horizonDays?: number },
 ): readonly { policy: Policy; revision: PolicyRevision }[] {
     const horizonDays = options.horizonDays ?? 60;
+    if (!Number.isFinite(horizonDays) || horizonDays < 0) {
+        throw new TypeError(
+            `noticeQueue: horizonDays must be a finite, non-negative number, got ${horizonDays}.`,
+        );
+    }
     const cutoff = isoDay(new Date(options.now.getTime() - horizonDays * 86_400_000));
     const queue: { policy: Policy; revision: PolicyRevision }[] = [];
     for (const policy of policies) {
-        for (const revision of policy.revisions()) {
-            if (revision.notice !== "none" && revision.effectiveFrom >= cutoff) {
+        const revisions = policy.revisions();
+        const superseded = supersededFlags(revisions);
+        revisions.forEach((revision, index) => {
+            if (!superseded[index] && revision.notice !== "none" && revision.effectiveFrom >= cutoff) {
                 queue.push({ policy, revision });
             }
-        }
+        });
     }
     return queue;
 }
@@ -262,10 +310,28 @@ export function noticeQueue(
 /**
  * The revision string a user must have accepted at `now` to count as consented, across the
  * given policies (a consumer typically passes `[terms, privacy]` - consent binds them jointly):
- * the MAX effective revision that is either a policy's FIRST revision (the baseline everyone
- * accepted at signup) or carries `notice: "reconsent"`. A `"notify"`-tier revision deliberately
- * does NOT move this - notify means existing consent stands, so it must never re-prompt anyone.
- * Compare a stored acceptance with lexicographic `>=` against this string.
+ * the MAX effective revision that is either a policy's BASELINE (the first revision that ever
+ * binds - what everyone accepted at signup) or carries `notice: "reconsent"`. A `"notify"`-tier
+ * revision deliberately does NOT move this - notify means existing consent stands, so it must
+ * never re-prompt anyone. Compare a stored acceptance with lexicographic `>=` against this
+ * string.
+ *
+ * A revision superseded before its effective day never moves the gate, for the same reason
+ * `pending()` and `noticeQueue` exclude it: its text never binds, so demanding consent to it is
+ * meaningless - and would re-prompt every user on its effectiveFrom day over nothing. When a
+ * superseding revision still owes the superseded one's reconsent, the AUTHOR records
+ * `reconsent` on the superseding revision (see the skill's supersession step).
+ *
+ * STAMP THIS VALUE at acceptance time (the README recipe does): it is monotone over time and
+ * never runs ahead of a requirement that has not bound yet. Stamping anything else re-creates
+ * one of two failure modes - a single policy's revision lags the joint gate (re-prompt loop),
+ * and the max EFFECTIVE revision across policies can exceed a sibling policy's pending
+ * reconsent revision string, silently satisfying the gate when that reconsent later binds.
+ *
+ * Cross-policy nuance, deliberate: the gate is ONE joint threshold, so a reconsent whose
+ * revision string is older than a sibling policy's newer baseline/reconsent is subsumed by it -
+ * users re-prompt once against the joint max, not once per policy. Consumers needing strictly
+ * per-policy reconsent tracking run this per policy with one stored stamp each.
  *
  * @param policies - the policies consent binds jointly.
  * @param now - the instant to evaluate (a not-yet-effective reconsent revision does not count
@@ -279,12 +345,17 @@ export function requiredConsentRevision(policies: readonly Policy[], now: Date):
     let required = "";
     for (const policy of policies) {
         const revisions = policy.revisions();
+        const superseded = supersededFlags(revisions);
+        // The baseline is the first revision that ever BINDS: the first non-superseded one
+        // (always found - the newest revision is never superseded), which also carries the
+        // minimum effectiveFrom that ever binds, so it is the signup baseline from day one.
+        const baseline = superseded.indexOf(false);
         for (let i = 0; i < revisions.length; i++) {
             const rev = revisions[i];
-            if (rev.effectiveFrom > today) {
+            if (superseded[i] || rev.effectiveFrom > today) {
                 continue;
             }
-            if ((i === 0 || rev.notice === "reconsent") && rev.revision > required) {
+            if ((i === baseline || rev.notice === "reconsent") && rev.revision > required) {
                 required = rev.revision;
             }
         }

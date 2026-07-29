@@ -62,6 +62,8 @@ Create `<dir>/<date>/` with one `<locale>.mdx` per configured locale (grammar:
 
 - **Every locale is translated FRESH from the new source text** - never copy an old translation
   forward.
+- Every file needs a non-empty MDX body - a file that is frontmatter with no document text
+  fails validation.
 - A NEW locale starts at the revision that introduces it - never backfill older revision
   directories (the loader enforces contiguity: once introduced, a locale must exist for every
   later revision, and may not exist for earlier ones).
@@ -97,13 +99,22 @@ Unsure -> the stricter tier.
 
 ## Step 5 - Set `effectiveFrom`
 
-`YYYY-MM-DD`, `>= ` the revision date (the package validates only that). The gap between the
-two IS the notice window - and the window you must grant comes from **the consumer's own
-published terms** (its change-notice clause), not from this package. Read the consumer's current
-terms for the promised period (there may be tiers, e.g. business vs consumer, and legal
-exceptions - a change forced by law or security may be immediate). Shipping an adverse change
-effective tomorrow breaches the consumer's own contract silently; when in doubt, ask the user
-what window applies.
+A real `YYYY-MM-DD` calendar day, `>=` the revision date (the package validates both - an
+impossible date is an error, including unquoted YAML dates that would otherwise roll over to a
+different day). The gap between the two IS the notice window - and the window you must grant
+comes from **the consumer's own published terms** (its change-notice clause), not from this
+package. Read the consumer's current terms for the promised period (there may be tiers, e.g.
+business vs consumer, and legal exceptions - a change forced by law or security may be
+immediate). Shipping an adverse change effective tomorrow breaches the consumer's own contract
+silently; when in doubt, ask the user what window applies.
+
+One supersession consequence to check: an immediate revision shipped while an earlier revision's
+notice window is still running SUPERSEDES it - the pending text will never bind, and policykit
+stops announcing it (`pending()` and `noticeQueue` exclude it) and never gates consent on it
+(`requiredConsentRevision` skips it). Make sure the new revision's text incorporates whatever
+the superseded revision was meant to change, or that dropping it is intended - and if the
+superseded revision was `reconsent` tier and its change survives in the new text, record
+`reconsent` on the NEW revision, because the superseded one no longer moves the consent gate.
 
 ## Step 6 - Validate
 

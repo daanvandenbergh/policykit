@@ -51,9 +51,10 @@ policies/terms-of-service/
 The grammar is STRICT and every breach is a loud error naming the offending entry (thrown at
 first use - which fails `next build` - never at import time):
 
-- a revision directory must match `YYYY-MM-DD` (a typo'd `2026-8-15/` is an error, never an
-  invisible revision);
+- a revision directory must be a real `YYYY-MM-DD` calendar day (a typo'd `2026-8-15/` or an
+  impossible `2026-02-30/` is an error, never an invisible revision);
 - inside a revision directory, every file is `<locale>.mdx` for a locale you configured;
+- every file must have a non-empty MDX body - frontmatter alone is not a legal document;
 - nothing else may sit at the policy root, except `drafts/`, which is skipped wholesale - a
   committed dated directory is *published* (it ships on the next deploy and becomes `latest`).
 
@@ -68,8 +69,10 @@ The **default locale's file** (`en` unless configured) carries the revision's me
 
 ```yaml
 ---
-effectiveFrom: 2026-08-12    # REQUIRED. YYYY-MM-DD, >= the revision date. The gap IS the
-                             # notice window: publish today, take effect after the notice period.
+effectiveFrom: 2026-08-12    # REQUIRED. A real YYYY-MM-DD calendar day >= the revision date.
+                             # The gap IS the notice window: publish today, take effect after
+                             # the notice period. Impossible dates are errors - including
+                             # unquoted YAML dates that would otherwise roll over silently.
 notice: notify               # REQUIRED. none | notify | reconsent - the recorded legal judgement.
 changeSummary: "Added the monthly fair-use limit and retiered change notice."
                              # REQUIRED, non-empty, English. INTERNAL changelog/evidence -
@@ -122,24 +125,35 @@ imports `next/link`):
 // app/[locale]/legal/terms/page.tsx
 import { PolicyDocument } from "@daanvandenbergh/policykit/react";
 import { termsPolicy } from "@/content/policies";
+import { MyLink } from "@/components/MyLink"; // your locale-aware link component
 
 export default async function TermsPage({ params }: { params: Promise<{ locale: string }> }) {
     const { locale } = await params;
     const now = new Date();
-    const latest = termsPolicy.latest();
+    const shown = termsPolicy.effective(now) ?? termsPolicy.latest();
     const pending = termsPolicy.pending(now);
+    // The locale file's own title; shown.title is the DEFAULT locale's and would be the wrong
+    // language here (content() deliberately does no fallback - the fallback is your call).
+    const title = termsPolicy.content(shown.revision, locale)?.title ?? shown.title;
     return (
         <article className="prose">
-            <h1>{latest.title}</h1>
+            <h1>{title}</h1>
             {pending && <p>A new version takes effect on {pending.effectiveFrom}.</p>}
-            <PolicyDocument policy={termsPolicy} locale={locale} components={{ a: MyLink }} />
+            <PolicyDocument
+                policy={termsPolicy}
+                locale={locale}
+                revision={shown.revision}
+                components={{ a: MyLink }}
+            />
         </article>
     );
 }
 ```
 
-With `revision` omitted, `PolicyDocument` renders `effective(now) ?? latest()` - the text that
-binds, or the first published text before anything is effective.
+`effective(now) ?? latest()` is the live-page revision: the text that binds, or the newest
+published text before anything is effective. Passing `revision={shown.revision}` keeps your title
+and the body on the SAME revision; with `revision` omitted, `PolicyDocument` computes that same
+default itself - fine when you render no revision metadata around it.
 
 **3. Validate in CI.** One test proves a deploy cannot fail on policy content:
 
@@ -160,6 +174,8 @@ unknown (`revision()` takes untrusted input and returns `undefined`, never throw
 ```tsx
 // app/[locale]/legal/terms/[revision]/page.tsx
 import { notFound } from "next/navigation";
+import { PolicyDocument } from "@daanvandenbergh/policykit/react";
+import { termsPolicy } from "@/content/policies";
 
 export default async function TermsRevisionPage({ params }: {
     params: Promise<{ locale: string; revision: string }>;
@@ -182,19 +198,39 @@ compare with lexicographic `>=` - the strings are zero-padded ISO, so string ord
 import { requiredConsentRevision } from "@daanvandenbergh/policykit";
 
 const required = requiredConsentRevision(POLICIES, new Date());
-const consented = user.acceptedPolicyRevision >= required;
+// "" means nothing is in force yet, so nobody owes consent; ?? "" keeps a never-accepted
+// user (undefined stamp) from failing the comparison for the wrong reason.
+const consented = required === "" || (user.acceptedPolicyRevision ?? "") >= required;
 ```
 
-`requiredConsentRevision` is the max *effective* revision that is either a policy's FIRST
-revision or carries `notice: "reconsent"`. A `"notify"` revision deliberately never moves it - it
-must never re-prompt anyone.
+`requiredConsentRevision` is the max *effective* revision that is either a policy's baseline
+(the first revision that ever binds) or carries `notice: "reconsent"`. A `"notify"` revision
+deliberately never moves it - it must never re-prompt anyone. A revision superseded before its
+effective day never moves it either - its text never binds (see [the notice job](#the-notice-job)),
+so demanding consent to it would re-prompt everyone over nothing; if the superseding revision
+still owes that reconsent, record `reconsent` on the superseding revision itself.
 
-**Stamp the EFFECTIVE revision the user was shown, never `latest()`**: during a notice window the
-user accepts the text that binds, not the pending one.
+**Stamp the joint threshold the user just satisfied - `requiredConsentRevision` itself, evaluated
+at acceptance time:**
 
 ```ts
-const accepted = termsPolicy.effective(new Date())?.revision; // what an acceptance stamps
+// What an acceptance stamps. The value is monotone over time and NEVER runs ahead of a
+// requirement that has not bound yet - which is exactly what a hand-rolled stamp gets
+// wrong. Stamping one policy's revision lags the joint gate (re-prompting forever), and
+// stamping the max EFFECTIVE revision across policies can run AHEAD of a sibling policy's
+// pending reconsent (a newer-dated notify revision inflates the stamp past the reconsent's
+// revision string, silently masking it when it binds - consent recorded that was never
+// given). The threshold itself has neither failure mode.
+const accepted = requiredConsentRevision(POLICIES, new Date());
 ```
+
+The user still SEES the effective texts (the quickstart page renders `effective(now)`); the stamp
+is the gate value those texts satisfy, not a display artifact. One cross-policy nuance to know:
+the gate is a single joint threshold, so a reconsent revision whose date string is older than a
+sibling policy's newer baseline/reconsent revision is subsumed by it - users are re-prompted once
+against the joint threshold, not once per policy. If you need strictly per-policy reconsent
+tracking, run the gate per policy (`requiredConsentRevision([termsPolicy], now)` etc.) with one
+stored stamp per policy.
 
 All binding comparisons reduce `now` to its **UTC calendar day** - a revision takes effect at UTC
 midnight of its `effectiveFrom`, everywhere.
@@ -219,6 +255,10 @@ for (const { policy, revision } of noticeQueue(POLICIES, { now: new Date() })) {
 keep the horizon comfortably INSIDE that TTL (the 60-day default suits a 90-day TTL): an
 unbounded queue would re-notify every user about every historical revision each time its dedupe
 row expired.
+
+A revision superseded before it ever bound - a newer revision (say, an immediate law/security
+change) took effect on or before its `effectiveFrom` - is never queued, and `pending()` never
+returns it: its text will never bind, and announcing it would be misinformation.
 
 ---
 
@@ -269,11 +309,15 @@ Root entry - react-free:
   lazy, per-file memoized, and re-validated on every accessor (so `next dev` sees edits live and
   a broken directory fails every call, loudly).
 - `policy.revisions()` - all revisions, ascending. Throws `PolicyValidationError` on any breach.
-- `policy.latest()` - the newest revision (the live page + signup text).
+- `policy.latest()` - the newest revision by date (the live page's fallback before anything is
+  effective; during a notice window it is published but not yet binding, so never what an
+  acceptance stamps).
 - `policy.effective(now)` - the revision that BINDS at `now`, or `undefined` before the first
   `effectiveFrom`. What consent gates compare against and what acceptance stamps.
-- `policy.pending(now)` - published but not yet effective; drives the "takes effect on" banner.
-- `policy.revision(date)` - lookup by exact revision string; `undefined` on a miss, never throws.
+- `policy.pending(now)` - published, not yet effective, and still going to bind (superseded
+  revisions are never announced); drives the "takes effect on" banner.
+- `policy.revision(date)` - lookup by exact revision string; `undefined` on a miss, never throws
+  on the lookup itself (an invalid corpus still throws `PolicyValidationError`).
 - `policy.content(revision, locale)` - `{ source, title? }` or `undefined` (absence is an
   answer: a locale may legally be missing from an old revision).
 - `policy.assertValid()` / `assertValidAll(policies)` - walk everything, throw the first
