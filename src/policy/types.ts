@@ -68,7 +68,17 @@ export interface PolicyRevision {
      * contiguity rule).
      */
     readonly locales: readonly string[];
-    /** The default-locale file's optional display title, if it set one. */
+    /**
+     * The DEFAULT-LOCALE file's optional display title, if it set one.
+     *
+     * NOTE THE ASYMMETRY WITH {@link PolicyContent.title}, which is the REQUESTED locale's own. Both
+     * are deliberate and they answer different questions: this one belongs to the revision as a
+     * whole (metadata lives in the default-locale file, so it cannot be per-locale here), while
+     * `content()` hands back the title of the exact file it just read. A page rendering a specific
+     * locale wants `content().title`; a listing that has not chosen a locale yet gets this one, in
+     * the default language. Mixing them up shows a reader the wrong language's title, which is why
+     * neither falls back to the other.
+     */
     readonly title?: string;
 }
 
@@ -78,6 +88,12 @@ export interface PolicyRevision {
 export interface PolicyContent {
     /** The raw MDX body (frontmatter stripped), ready for an MDX compiler. */
     readonly source: string;
-    /** The `title:` of that locale's own file, if it set one (no default-locale fallback). */
+    /**
+     * The `title:` of THAT LOCALE'S own file, if it set one - never a default-locale fallback.
+     *
+     * A fallback would silently render an English heading above Dutch text. Absence is the honest
+     * answer, and the consumer decides what to show instead (its own page copy, usually). See
+     * {@link PolicyRevision.title} for the other half of this pair.
+     */
     readonly title?: string;
 }

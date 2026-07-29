@@ -176,6 +176,19 @@ describe("frontmatter contract", () => {
         expect(error.file).toBe("2026-07-07/en.mdx");
     });
 
+    it("names BOTH the file and the field in the message, not only in the details", () => {
+        // The message is what a developer actually reads - in a failed `next build`, in a CI log, in
+        // a thrown stack. The structured `{ file, field }` is for code; if only the structure carried
+        // the location, every human-facing report of a broken policy would say "something is wrong"
+        // and make somebody go hunting through the corpus for it.
+        const dir = makePolicyDir({ "2026-07-07/en.mdx": validDefault("2026-07-06") });
+        const error = expectViolation(() => policyAt(dir).revisions());
+        expect(error.message).toContain("2026-07-07/en.mdx");
+        expect(error.message).toContain("effectiveFrom");
+        // And the slug, so a multi-policy `assertValidAll` failure says WHICH document broke.
+        expect(error.message).toContain(error.slug);
+    });
+
     it("accepts effectiveFrom equal to the revision date, quoted or as a bare YAML date", () => {
         const quoted = makePolicyDir({ "2026-07-07/en.mdx": validDefault('"2026-07-07"') });
         expect(policyAt(quoted).latest().effectiveFrom).toBe("2026-07-07");

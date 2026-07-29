@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Policy, noticeQueue, requiredConsentRevision } from "../policy.js";
+import { DEFAULT_NOTICE_HORIZON_DAYS, Policy, noticeQueue, requiredConsentRevision } from "../policy.js";
 import { fixture, makePolicyDir, mdx } from "./helpers.js";
 
 /**
@@ -103,5 +103,50 @@ describe("requiredConsentRevision", () => {
         const policy = new Policy({ slug: "superseded-baseline", dir, locales: ["en"] });
         expect(requiredConsentRevision([policy], new Date("2026-07-15T00:00:00Z"))).toBe("2026-07-02");
         expect(requiredConsentRevision([policy], new Date("2026-09-02T00:00:00Z"))).toBe("2026-07-02");
+    });
+});
+
+describe("Policy.owedNotices - the single-policy form", () => {
+    it("returns this policy's owed revisions, without the { policy } wrapper", () => {
+        const now = new Date("2026-08-20T12:00:00Z");
+        expect(terms.owedNotices({ now }).map((revision) => revision.revision)).toEqual(["2026-07-28"]);
+        expect(privacy.owedNotices({ now }).map((revision) => revision.revision)).toEqual(["2026-08-01"]);
+    });
+
+    it("agrees with noticeQueue exactly - one implementation, two shapes", () => {
+        // The guard that keeps them from drifting into two definitions of "owed". Anything the
+        // queue reports for a policy, that policy must report for itself, and vice versa.
+        for (const now of [
+            new Date("2026-07-20T00:00:00Z"),
+            new Date("2026-08-20T12:00:00Z"),
+            new Date("2026-12-01T00:00:00Z"),
+        ]) {
+            const fromQueue = noticeQueue([terms, privacy], { now });
+            const fromPolicies = [terms, privacy].flatMap((policy) =>
+                policy.owedNotices({ now }).map((revision) => ({ policy, revision })),
+            );
+            expect(fromPolicies).toEqual(fromQueue);
+        }
+    });
+
+    it("honours the horizon, and rejects a bad one the same way the queue does", () => {
+        const now = new Date("2026-12-01T00:00:00Z");
+        expect(terms.owedNotices({ now })).toEqual([]);
+        expect(terms.owedNotices({ now, horizonDays: 365 }).map((r) => r.revision)).toEqual(["2026-07-28"]);
+        expect(() => terms.owedNotices({ now, horizonDays: -1 })).toThrow(TypeError);
+    });
+});
+
+describe("DEFAULT_NOTICE_HORIZON_DAYS", () => {
+    it("is the value the queue actually uses when no horizon is given", () => {
+        // Exported so a consumer can assert it against its OWN notice-dedupe TTL: a horizon longer
+        // than that TTL re-queues every historical revision each time a dedupe row is swept. A
+        // constant that drifted from the real default would make that consumer check a lie.
+        const now = new Date("2026-08-20T12:00:00Z");
+        expect(noticeQueue([terms, privacy], { now, horizonDays: DEFAULT_NOTICE_HORIZON_DAYS })).toEqual(
+            noticeQueue([terms, privacy], { now }),
+        );
+        expect(DEFAULT_NOTICE_HORIZON_DAYS).toBeGreaterThan(0);
+        expect(Number.isFinite(DEFAULT_NOTICE_HORIZON_DAYS)).toBe(true);
     });
 });

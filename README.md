@@ -367,13 +367,23 @@ Root entry - react-free:
 - `policy.revision(date)` - lookup by exact revision string; `undefined` on a miss, never throws
   on the lookup itself (an invalid corpus still throws `PolicyValidationError`).
 - `policy.content(revision, locale)` - `{ source, title? }` or `undefined` (absence is an
-  answer: a locale may legally be missing from an old revision).
+  answer: a locale may legally be missing from an old revision). `title` is THAT locale's own;
+  `revision.title` is the default locale's - see the note in the quickstart.
+- `policy.has(revision, locale)` - the cheap existence check, no body read. What an archive route
+  asks before choosing between rendering and a 404, instead of calling `content()` twice.
+- `policy.owedNotices({ now, horizonDays? })` - the owed-notice revisions of THIS policy
+  (`readonly PolicyRevision[]`). Same semantics as `noticeQueue`, for per-document surfaces that
+  should not have to build a one-element array and unwrap `{ policy }` pairs.
 - `policy.assertValid()` / `assertValidAll(policies)` - walk everything, throw the first
   violation naming the file and field; `assertValidAll` also rejects duplicate slugs.
 - `pendingNotice(policies, now)` - the one pending revision a banner should announce:
   soonest-effective across the policies, still going to bind, and owing notice
   (`notice !== "none"`); `{ policy, revision }` or `undefined`.
 - `noticeQueue(policies, { now, horizonDays? })` - the owed-notice queue (see above).
+- `DEFAULT_NOTICE_HORIZON_DAYS` (`60`) - the default horizon, exported so a consumer can ASSERT it
+  against its own dedupe TTL. **A horizon longer than that TTL re-queues every historical revision
+  each time a dedupe row is swept**, re-notifying everyone on a schedule nobody watches. Compare
+  the two in a test.
 - `requiredConsentRevision(policies, now)` - the consent gate threshold (see above).
 - `PolicyValidationError` - carries `{ slug, file?, field? }` for precise rendering/logging.
 

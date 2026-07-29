@@ -250,6 +250,45 @@ export class Policy {
     }
 
     /**
+     * Whether one `(revision, locale)` pair exists on disk - the cheap existence check, without
+     * reading or returning the body.
+     *
+     * Exists because the alternative is calling {@link Policy.content} twice: once to test the pair
+     * and once for the value (a real consumer route did exactly that). A missing locale on an older
+     * revision is a LEGAL state, not an error - a locale introduced later never backfills the
+     * archive - so a route serving `/policy/<slug>/<revision>` has to ask this question before it
+     * decides between rendering and a 404.
+     *
+     * @param revision - the revision date string (untrusted).
+     * @param locale - the locale code (untrusted).
+     * @returns `true` only when that revision exists AND carries that locale.
+     * @throws PolicyValidationError when the directory is invalid.
+     */
+    has(revision: string, locale: string): boolean {
+        return this.load().find((entry) => entry.revision === revision)?.files.has(locale) ?? false;
+    }
+
+    /**
+     * The revisions of THIS policy that owe user-facing notice at `now` - the single-policy form of
+     * {@link noticeQueue}, with identical semantics (superseded revisions skipped, bounded by the
+     * same horizon).
+     *
+     * The free function is what a delivery job wants (it walks every policy at once); this is what a
+     * per-document surface wants - a dashboard row, an admin view, a test asserting one policy's
+     * obligations - none of which should have to build a one-element array and unwrap `{ policy }`
+     * pairs to ask about one document.
+     *
+     * @param options - `now` (reduced to its UTC day) and the optional `horizonDays`
+     *   (default {@link DEFAULT_NOTICE_HORIZON_DAYS}).
+     * @returns the owed revisions, ascending.
+     * @throws PolicyValidationError when the directory is invalid.
+     * @throws TypeError on a non-finite or negative `horizonDays`.
+     */
+    owedNotices(options: { now: Date; horizonDays?: number }): readonly PolicyRevision[] {
+        return owedNoticesOf(this, options);
+    }
+
+    /**
      * Walks and validates everything - the layout grammar, every file's frontmatter, locale
      * contiguity - and throws the first violation, its message naming the file path and field.
      * The red/green drill target for consumer test suites and CI: one green `assertValid()` per
@@ -261,6 +300,23 @@ export class Policy {
         this.load();
     }
 }
+
+/**
+ * How far back {@link noticeQueue} and {@link Policy.owedNotices} look, in days, when the caller
+ * names no horizon.
+ *
+ * EXPORTED BECAUSE THE NUMBER HAS TO BE COMPARED AGAINST SOMETHING THE PACKAGE CANNOT SEE. The
+ * horizon must stay comfortably INSIDE the consumer's own notice-dedupe TTL: delivery is deduped on
+ * a row the consumer expires (SwiftGuard sweeps notification rows after 90 days), and a horizon
+ * LONGER than that TTL re-queues every historical revision each time its dedupe row is swept -
+ * re-notifying every user, forever, on a quiet schedule nobody is watching. A consumer can only
+ * check that invariant if it can name this number, and a default buried in a signature is one a
+ * consumer silently assumes instead.
+ *
+ * 60 days: long enough that a job outage of weeks still delivers, short enough to clear a 90-day
+ * dedupe window with a month to spare.
+ */
+export const DEFAULT_NOTICE_HORIZON_DAYS = 60;
 
 /**
  * Every revision across `policies` that owes user-facing notice (`notice !== "none"`), will
@@ -276,9 +332,9 @@ export class Policy {
  * their dedupe rows do.
  *
  * @param policies - the policies to scan.
- * @param options - `now` (reduced to its UTC day) and the optional `horizonDays` (default 60,
- *   must be a finite, non-negative number - a negative horizon would silently drop owed
- *   notices, so it throws instead).
+ * @param options - `now` (reduced to its UTC day) and the optional `horizonDays` (default
+ *   {@link DEFAULT_NOTICE_HORIZON_DAYS}, must be a finite, non-negative number - a negative horizon
+ *   would silently drop owed notices, so it throws instead).
  * @returns each owed `{ policy, revision }` pair.
  * @throws PolicyValidationError when any policy's directory is invalid.
  * @throws TypeError on a non-finite or negative `horizonDays`.
@@ -287,24 +343,40 @@ export function noticeQueue(
     policies: readonly Policy[],
     options: { now: Date; horizonDays?: number },
 ): readonly { policy: Policy; revision: PolicyRevision }[] {
-    const horizonDays = options.horizonDays ?? 60;
+    const queue: { policy: Policy; revision: PolicyRevision }[] = [];
+    for (const policy of policies) {
+        for (const revision of owedNoticesOf(policy, options)) {
+            queue.push({ policy, revision });
+        }
+    }
+    return queue;
+}
+
+/**
+ * The shared body of {@link noticeQueue} and {@link Policy.owedNotices} - one implementation, so the
+ * two can never disagree about what "owed" means.
+ *
+ * @param policy - the policy to scan.
+ * @param options - `now` and the optional `horizonDays`.
+ * @returns the owed revisions of that policy, ascending.
+ */
+function owedNoticesOf(
+    policy: Policy,
+    options: { now: Date; horizonDays?: number },
+): readonly PolicyRevision[] {
+    const horizonDays = options.horizonDays ?? DEFAULT_NOTICE_HORIZON_DAYS;
     if (!Number.isFinite(horizonDays) || horizonDays < 0) {
         throw new TypeError(
             `noticeQueue: horizonDays must be a finite, non-negative number, got ${horizonDays}.`,
         );
     }
     const cutoff = isoDay(new Date(options.now.getTime() - horizonDays * 86_400_000));
-    const queue: { policy: Policy; revision: PolicyRevision }[] = [];
-    for (const policy of policies) {
-        const revisions = policy.revisions();
-        const superseded = supersededFlags(revisions);
-        revisions.forEach((revision, index) => {
-            if (!superseded[index] && revision.notice !== "none" && revision.effectiveFrom >= cutoff) {
-                queue.push({ policy, revision });
-            }
-        });
-    }
-    return queue;
+    const revisions = policy.revisions();
+    const superseded = supersededFlags(revisions);
+    return revisions.filter(
+        (revision, index) =>
+            !superseded[index] && revision.notice !== "none" && revision.effectiveFrom >= cutoff,
+    );
 }
 
 /**

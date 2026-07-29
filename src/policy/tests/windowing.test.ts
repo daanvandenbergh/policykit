@@ -107,6 +107,40 @@ describe("revision", () => {
     });
 });
 
+describe("has - the cheap existence check", () => {
+    it("mirrors content() exactly, for every combination that matters", () => {
+        // The point of having it at all: a route that must choose between rendering and a 404 was
+        // calling content() twice - once to test, once for the value. If the two ever disagreed, a
+        // page would 404 on text it holds, or render `undefined`.
+        const cases: ReadonlyArray<[string, string]> = [
+            ["2026-07-07", "en"],
+            ["2026-07-07", "nl"],
+            ["2026-07-07", "de"],
+            ["2026-01-01", "en"],
+            ["garbage", "en"],
+        ];
+        for (const [revision, locale] of cases) {
+            expect(terms.has(revision, locale), `${revision}/${locale}`).toBe(
+                terms.content(revision, locale) !== undefined,
+            );
+        }
+    });
+
+    it("is false for a locale legally absent from an old revision, true once introduced", () => {
+        // The contiguity rule in one assertion: Dutch arrives with the 2026-08-01 privacy revision
+        // and is genuinely absent before it - absence is an ANSWER here, not a failure.
+        expect(privacy.has("2026-07-14", "nl")).toBe(false);
+        expect(privacy.has("2026-08-01", "nl")).toBe(true);
+    });
+
+    it("does not throw on untrusted input - it is fed route params", () => {
+        for (const garbage of ["", "../../etc/passwd", "2026-13-45", "drafts"]) {
+            expect(() => terms.has(garbage, garbage)).not.toThrow();
+            expect(terms.has(garbage, garbage)).toBe(false);
+        }
+    });
+});
+
 describe("content", () => {
     it("returns the MDX body and the locale file's own title", () => {
         const content = terms.content("2026-07-07", "nl");
