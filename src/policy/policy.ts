@@ -308,6 +308,50 @@ export function noticeQueue(
 }
 
 /**
+ * The one pending revision a user-facing banner should announce at `now`, across `policies`: the
+ * soonest-to-take-effect revision that is published, not yet effective, still going to bind, and
+ * OWES notice (`notice !== "none"`). This is what `<PolicyBanner>` renders from, and what an
+ * in-app banner endpoint should serve.
+ *
+ * Deliberately NOT `policies.map((p) => p.pending(now))`: `pending()` answers "what takes effect
+ * next" for one policy regardless of tier, so it happily returns a `notice: "none"` revision -
+ * announcing which contradicts the recorded legal judgement that no notice is owed - and it would
+ * then MASK a later notice-owing revision behind it. This function skips `"none"` revisions and
+ * keeps scanning, so the banner announces the next revision users are actually owed word of.
+ *
+ * @param policies - the policies to scan (pass all of them; a banner is site-wide).
+ * @param now - the instant to evaluate, reduced to its UTC calendar day - a revision stops being
+ *   announced at UTC midnight of its `effectiveFrom`, the same boundary `effective()` uses.
+ * @returns the `{ policy, revision }` to announce - on an `effectiveFrom` tie the first policy in
+ *   the given order wins - or `undefined` when nothing pending owes notice.
+ * @throws PolicyValidationError when any policy's directory is invalid.
+ */
+export function pendingNotice(
+    policies: readonly Policy[],
+    now: Date,
+): { policy: Policy; revision: PolicyRevision } | undefined {
+    const today = isoDay(now);
+    let soonest: { policy: Policy; revision: PolicyRevision } | undefined;
+    for (const policy of policies) {
+        const revisions = policy.revisions();
+        const superseded = supersededFlags(revisions);
+        for (let i = 0; i < revisions.length; i++) {
+            const revision = revisions[i];
+            if (superseded[i] || revision.notice === "none" || revision.effectiveFrom <= today) {
+                continue;
+            }
+            // Non-superseded revisions have strictly increasing effectiveFrom, so this first
+            // match is this policy's soonest - take it and stop scanning the policy either way.
+            if (soonest === undefined || revision.effectiveFrom < soonest.revision.effectiveFrom) {
+                soonest = { policy, revision };
+            }
+            break;
+        }
+    }
+    return soonest;
+}
+
+/**
  * The revision string a user must have accepted at `now` to count as consented, across the
  * given policies (a consumer typically passes `[terms, privacy]` - consent binds them jointly):
  * the MAX effective revision that is either a policy's BASELINE (the first revision that ever

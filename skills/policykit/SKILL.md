@@ -91,9 +91,9 @@ file fails validation - metadata duplicated across locales is metadata that drif
 
 | Tier | When | Consequence in the consumer |
 |---|---|---|
-| `none` | Non-material, or a change forced by law/security that owes no notice | Nothing queued; consent gate unmoved |
-| `notify` | Materially reduces what a customer gets, but existing consent stands | Queued for notice; NEVER re-prompts consent |
-| `reconsent` | Users must expressly accept again | Queued for notice AND moves `requiredConsentRevision` from its `effectiveFrom` day |
+| `none` | Non-material, or a change forced by law/security that owes no notice | Nothing queued; no takes-effect banner; consent gate unmoved |
+| `notify` | Materially reduces what a customer gets, but existing consent stands | Queued for notice and announced by the banner; NEVER re-prompts consent |
+| `reconsent` | Users must expressly accept again | Queued and announced, AND moves `requiredConsentRevision` from its `effectiveFrom` day |
 
 Unsure -> the stricter tier.
 
@@ -110,7 +110,7 @@ silently; when in doubt, ask the user what window applies.
 
 One supersession consequence to check: an immediate revision shipped while an earlier revision's
 notice window is still running SUPERSEDES it - the pending text will never bind, and policykit
-stops announcing it (`pending()` and `noticeQueue` exclude it) and never gates consent on it
+stops announcing it (`pending()`, `pendingNotice`, and `noticeQueue` exclude it) and never gates consent on it
 (`requiredConsentRevision` skips it). Make sure the new revision's text incorporates whatever
 the superseded revision was meant to change, or that dropping it is intended - and if the
 superseded revision was `reconsent` tier and its change survives in the new text, record

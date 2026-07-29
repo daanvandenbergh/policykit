@@ -1,5 +1,7 @@
 # @daanvandenbergh/policykit
 
+![Versioned legal policies as MDX](claude/scribekit-hero/readme/hero.png)
+
 Versioned legal policies as MDX for **Next.js App Router**. A legal policy (terms of service,
 privacy policy, DPA, ...) is a *versioned document*, not UI: it has revisions, each revision has
 an effective date and a notice obligation, the published text is legal evidence, and your app
@@ -11,6 +13,7 @@ your notice-window arithmetic - deliberately stays yours.
 
 **Contents:** [Install](#install) · [The content directory](#the-content-directory) ·
 [Quickstart](#quickstart) · [The archive route](#the-archive-route) ·
+[The takes-effect banner](#the-takes-effect-banner) ·
 [The consent gate](#the-consent-gate) · [The notice job](#the-notice-job) ·
 [Lifecycle rules](#lifecycle-rules) · [Claude Code skill and rules](#claude-code-skill-and-rules) ·
 [API](#api) · [What this package does not do](#what-this-package-does-not-do)
@@ -189,6 +192,51 @@ export default async function TermsRevisionPage({ params }: {
 
 ---
 
+## The takes-effect banner
+
+Site-wide, "a new version of our terms takes effect on {date}". `PolicyBanner` is a **headless**
+server component: it resolves which revision to announce and hands it to your `children` - the
+copy, the date formatting, and the markup are yours (no CSS ships, and the sentence is localized
+text only you can write). It renders `null` when there is nothing to announce:
+
+```tsx
+// app/[locale]/layout.tsx
+import { PolicyBanner } from "@daanvandenbergh/policykit/react";
+import { POLICIES } from "@/content/policies";
+
+<PolicyBanner policies={POLICIES}>
+    {({ policy, revision }) => (
+        <aside className="banner">
+            {t(`legal.${policy.slug}.takesEffect`, { date: format(revision.effectiveFrom) })}{" "}
+            <MyLink href={`/legal/${policy.slug}`}>Read it</MyLink>
+        </aside>
+    )}
+</PolicyBanner>
+```
+
+It announces the revision taking effect **soonest** across the policies you pass, and only one
+that **owes notice** - a `notice: "none"` revision is never announced (the tier IS the recorded
+decision that no notice is owed), and it never masks a later notice-owing revision behind it.
+Superseded revisions are excluded, same as everywhere. Pass `now` to pin the clock in tests.
+
+Need the same answer outside React (an in-app banner API, a mail digest header)? The core
+exports it directly - the component is a five-line wrapper around this:
+
+```ts
+import { pendingNotice } from "@daanvandenbergh/policykit";
+
+const announcement = pendingNotice(POLICIES, new Date()); // { policy, revision } | undefined
+```
+
+**`pending()` vs `pendingNotice`.** On a policy's OWN page, `policy.pending(now)` is the right
+call - it labels that document's next version whatever its tier (the quickstart does this).
+`pendingNotice` is the *notice* question, so it applies the tier filter; do not hand-roll it as
+`policies.map((p) => p.pending(now)).filter((r) => r?.notice !== "none")` - that drops a policy
+whose soonest pending revision happens to be `none` and silently swallows the `reconsent` behind
+it.
+
+---
+
 ## The consent gate
 
 Store the accepted revision as the **string** the package gives you (e.g. `"2026-07-28"`) and
@@ -322,6 +370,9 @@ Root entry - react-free:
   answer: a locale may legally be missing from an old revision).
 - `policy.assertValid()` / `assertValidAll(policies)` - walk everything, throw the first
   violation naming the file and field; `assertValidAll` also rejects duplicate slugs.
+- `pendingNotice(policies, now)` - the one pending revision a banner should announce:
+  soonest-effective across the policies, still going to bind, and owing notice
+  (`notice !== "none"`); `{ policy, revision }` or `undefined`.
 - `noticeQueue(policies, { now, horizonDays? })` - the owed-notice queue (see above).
 - `requiredConsentRevision(policies, now)` - the consent gate threshold (see above).
 - `PolicyValidationError` - carries `{ slug, file?, field? }` for precise rendering/logging.
@@ -330,6 +381,9 @@ React entry (`@daanvandenbergh/policykit/react`):
 
 - `<PolicyDocument policy locale revision? components? />` - async server component rendering
   one revision's MDX body via `next-mdx-remote/rsc` with `remark-gfm`. No CSS ships.
+- `<PolicyBanner policies now?>{({ policy, revision }) => ...}</PolicyBanner>` - headless server
+  component announcing the next revision to take effect (`pendingNotice`), or `null`. Reads the
+  filesystem, so it is server-only - never inside a `"use client"` tree.
 
 ---
 

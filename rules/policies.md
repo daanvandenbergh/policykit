@@ -21,7 +21,9 @@ calls no test can catch.
   translation minted today is not the historical document.
 - **`notice` is the legal decision, recorded per revision:** `none` = non-material, or forced by
   law/security; `notify` = materially reduces what a customer gets; `reconsent` = users must
-  expressly accept again. Unsure -> the stricter tier.
+  expressly accept again. Unsure -> the stricter tier. The tier drives the UI: a `none` revision
+  is never announced by the takes-effect banner (`pendingNotice`/`PolicyBanner`) and never
+  queued for notice - if users should see it coming, it was never `none`.
 - **A revision that supersedes a still-pending one carries the surviving obligations itself.**
   policykit never announces or gates consent on a superseded revision (its text never binds), so
   if the superseded change survives in the new text, the new revision records the stricter tier.
