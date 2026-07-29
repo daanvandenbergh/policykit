@@ -1,0 +1,70 @@
+{
+    "name": "@daanvandenbergh/policykit",
+    "version": "1.0.0",
+    "description": "Versioned legal policies as MDX for Next.js App Router: a directory per revision, a file per locale, and a Policy class that answers which revision binds now, what notice is owed, and renders any revision in any locale - plus Claude Code rules and a skill for authoring revisions.",
+    "license": "UNLICENSED",
+    "type": "module",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "default": "./dist/index.js"
+        },
+        "./react": {
+            "types": "./dist/react/index.d.ts",
+            "default": "./dist/react/index.js"
+        },
+        "./package.json": "./package.json"
+    },
+    "files": [
+        "dist",
+        "skills",
+        "rules"
+    ],
+    "publishConfig": {
+        "access": "public"
+    },
+    "scripts": {
+        "build": "tsc -p tsconfig.build.json",
+        "test": "vitest run --passWithNoTests",
+        "test:watch": "vitest",
+        "typecheck": "tsc --noEmit",
+        "prepublishOnly": "npm run build",
+        "push-and-publish": "git add -A && git commit -m 'Updates' && npm version patch && npm publish && git push -u origin main"
+    },
+    "dependencies": {
+        "gray-matter": "^4.0.3",
+        "remark-gfm": "^4.0.1"
+    },
+    "peerDependencies": {
+        "next": ">=14",
+        "next-mdx-remote": "^5 || ^6",
+        "react": ">=18",
+        "react-dom": ">=18"
+    },
+    "peerDependenciesMeta": {
+        "next": {
+            "optional": true
+        },
+        "next-mdx-remote": {
+            "optional": true
+        },
+        "react-dom": {
+            "optional": true
+        }
+    },
+    "devDependencies": {
+        "@daanvandenbergh/claudekit": "^1.0.7",
+        "@types/node": "^22.20.1",
+        "@types/react": "^19",
+        "@types/react-dom": "^19",
+        "next": "^16.2.10",
+        "next-mdx-remote": "^6",
+        "react": "^19",
+        "react-dom": "^19",
+        "server-only": "^0.0.1",
+        "typescript": "^5.6.0",
+        "vitest": "^3.0.0"
+    }
+}

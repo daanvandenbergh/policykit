@@ -1,0 +1,1 @@
+Stray non-MDX file inside drafts/ - ignored wholesale along with everything else here.
