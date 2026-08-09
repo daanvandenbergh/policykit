@@ -390,7 +390,7 @@ Root entry - react-free:
 React entry (`@daanvandenbergh/policykit/react`):
 
 - `<PolicyDocument policy locale revision? components? />` - async server component rendering
-  one revision's MDX body via `next-mdx-remote/rsc` with `remark-gfm`. No CSS ships.
+  one revision's MDX body via `next-mdx-remote` with `remark-gfm`. The compile is memoized per (options, source), so a revision is compiled once per process and an edit is a different key - never a stale document. No CSS ships.
 - `<PolicyBanner policies now?>{({ policy, revision }) => ...}</PolicyBanner>` - headless server
   component announcing the next revision to take effect (`pendingNotice`), or `null`. Reads the
   filesystem, so it is server-only - never inside a `"use client"` tree.

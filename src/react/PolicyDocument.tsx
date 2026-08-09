@@ -1,7 +1,14 @@
 import type { JSX } from "react";
-import { MDXRemote, type MDXRemoteProps } from "next-mdx-remote/rsc";
+import type { MDXRemoteProps } from "next-mdx-remote/rsc";
 import remarkGfm from "remark-gfm";
 import type { Policy } from "../policy/policy.js";
+import { MdxContent } from "./mdx.js";
+
+/**
+ * The compile options every policy render uses. A module constant rather than an inline literal so
+ * the memoized compiler in `mdx.ts` sees one stable options shape across every render.
+ */
+const MDX_OPTIONS: MDXRemoteProps["options"] = { mdxOptions: { remarkPlugins: [remarkGfm] } };
 
 /**
  * Props for {@link PolicyDocument}.
@@ -25,7 +32,8 @@ export interface PolicyDocumentProps {
 }
 
 /**
- * Async server component rendering one policy revision's MDX body via `next-mdx-remote/rsc`.
+ * Async server component rendering one policy revision's MDX body via `next-mdx-remote`, with the
+ * compile memoized per `(options, source)` - see `mdx.ts`.
  * Deliberately THIN: it renders ONLY the body - no title, no "last updated" label, no prose
  * styling, no CSS - the consumer wraps it in its own page shell (titles come from
  * `policy.revision(...)?.title` / `policy.content(...)?.title`).
@@ -60,11 +68,5 @@ export async function PolicyDocument(props: PolicyDocumentProps): Promise<JSX.El
                 `undefined before rendering PolicyDocument.`,
         );
     }
-    return (
-        <MDXRemote
-            source={content.source}
-            components={components}
-            options={{ mdxOptions: { remarkPlugins: [remarkGfm] } }}
-        />
-    );
+    return <MdxContent source={content.source} components={components} options={MDX_OPTIONS} />;
 }
