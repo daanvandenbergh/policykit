@@ -32,13 +32,13 @@
  * @prop c.violetDeep {string} The base ramp's darkest violet (`R, G, B`); keep it dark so white text stays legible.
  */
 const c = {
-    pink: "165, 214, 255",
-    lilac: "186, 199, 255",
-    peach: "252, 219, 165",
-    blue: "160, 235, 214",
-    violet: "84, 112, 224",
-    violetMid: "48, 68, 165",
-    violetDeep: "22, 32, 88",
+    pink: "232, 196, 255", // orchid
+    lilac: "196, 186, 255", // lilac
+    peach: "255, 214, 196", // peach
+    blue: "158, 196, 255", // periwinkle
+    violet: "109, 93, 246", // base ramp - violet (scribekit's --scribekit-violet, shared with backupkit)
+    violetMid: "82, 66, 206", // base ramp - deep violet
+    violetDeep: "52, 40, 150", // base ramp - indigo; kept dark so white text stays legible
 };
 
 /**
@@ -92,8 +92,11 @@ const fade = (t) => `rgba(${t}, 0)`;
  */
 export const brand = {
     font: { family: "Space Grotesk", url: "https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" },
-    badge: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v17"/><path d="M7 20h10"/><path d="M4 7h16"/><path d="M4 7 1 14h6L4 7Z"/><path d="M20 7l-3 7h6l-3-7Z"/></svg>',
-    accent: "48, 68, 165",
+    // The project mark - a balance scale - as its light app tile (white ground, mark on the brand
+    // ramp), the same asset the docs site uses. `bare` because the tile carries its own rounded
+    // background; the badge's default white tile would box it twice.
+    badge: { src: new URL("../../../docs/app/icon.svg", import.meta.url).href, bare: true },
+    accent: "109, 93, 246",
     eyebrow: "POLICYKIT",
     texture: { dots: 0.1, grain: 0.05 },
 };
