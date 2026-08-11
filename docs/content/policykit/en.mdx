@@ -1,0 +1,114 @@
+---
+title: "/policykit"
+description: "Reference for the Claude Code skill policykit ships: how it triggers, how to install it, the workflow it runs, and the rules file that binds every session."
+tab: "Guide"
+group: "Author"
+order: 6
+icon: "workflow"
+keywords:
+    - claude code skill
+    - policykit skill
+    - policy rules file
+    - CLAUDE.md
+    - agent workflow
+    - policy revision
+image: "/assets/docs/policykit/hero.en.jpg"
+updated: "2026-08-11"
+---
+
+The package ships a Claude Code skill that authors a policy revision end to end: it decides
+material-change-vs-erratum, creates the dated revision directory with one MDX file per locale,
+sets the notice tier and the effective date, and validates. It is the [writing a
+revision](/writing-a-revision) checklist, executed.
+
+```text
+/policykit [policy slug or description of the change - omit to be asked]
+```
+
+It is user-invokable, so you can call it by name. It also triggers on its own when you ask for
+the work in plain language: "add a policy revision", "update the terms", "publish the privacy
+policy change", "fix a typo in a policy", or "when does the new DPA take effect?".
+
+## Install it
+
+Symlink the skill out of `node_modules` rather than copying it, so it tracks the version of
+policykit you actually have installed:
+
+```bash
+mkdir -p .claude/skills
+ln -s ../../node_modules/@daanvandenbergh/policykit/skills/policykit .claude/skills/policykit
+```
+
+Then add this line to your `CLAUDE.md` so the editing rules load into every session, not only the
+ones that invoke the skill:
+
+```text
+@node_modules/@daanvandenbergh/policykit/rules/policies.md
+```
+
+## What it does
+
+Eight steps, in order.
+
+0. **Locate the policy and its config.** It finds your `new Policy({ slug, dir, locales,
+   defaultLocale? })` instances - conventionally one module such as `src/content/policies.ts` -
+   and reads the target policy's `dir`, `locales` and `defaultLocale`. If you did not name a
+   policy, it lists the configured slugs and asks.
+1. **Material change or erratum?** An erratum is edited in place and the run stops after
+   validation. A material change continues as a new revision.
+2. **Pick the revision date.** Today, zero-padded `YYYY-MM-DD`.
+3. **Create the revision directory.** `<dir>/<date>/` with one `<locale>.mdx` per configured
+   locale, matching `^[a-z]{2}(?:-[A-Z]{2})?\.mdx$`, each with a non-empty body.
+4. **Write the frontmatter** on the default locale's file only: `effectiveFrom`, `notice` and
+   `changeSummary`, plus an optional `title`. Other locale files get an optional `title` and
+   nothing else.
+5. **Set `effectiveFrom`.** A real calendar day on or after the revision date.
+6. **Validate.** It runs your own test suite, which covers `assertValid()` / `assertValidAll()`,
+   and fixes what throws until it is green. See [validation](/validation).
+7. **Show the diff.** The git diff is the review artifact: one new dated directory, or one
+   in-place erratum edit, and nothing else touched.
+
+## The judgement calls it makes for you
+
+- **Material vs erratum.** Material means the meaning moved - a right, a price, a limit, an
+  obligation, a data practice. If it has to ask, it is material.
+- **The notice tier.** `none`, `notify` or `reconsent`, chosen from what the change does to the
+  user, and recorded in frontmatter as the legal decision. Unsure means the stricter tier.
+- **One revision per day.** If today's directory exists but has not deployed, the change folds
+  into it. If it has deployed, the new revision is dated tomorrow.
+- **Fresh translations.** Every locale is translated from the new source text, never copied
+  forward from the previous revision.
+- **Supersession.** If the new revision supersedes one still inside its notice window, it checks
+  that the surviving obligations, and the stricter tier, move to the new revision.
+
+Each of these is spelled out in full on [writing a revision](/writing-a-revision), with the
+layout grammar on [policy directories](/policy-directories).
+
+## The rules file
+
+`rules/policies.md` is the other half of the contract. The skill is a workflow you invoke; the
+rules file is a set of standing rules your project `@`-imports into its `CLAUDE.md`, so every
+agent session obeys the policy lifecycle - including the sessions that edit a policy without ever
+reaching for the skill. Most of what it states is judgement no test can catch:
+
+- A material change is a new dated directory, never an edit to a published one.
+- A typo, format or link fix in a published file is an erratum: edit in place.
+- One revision per day; never amend a shipped revision.
+- Every locale of a new revision is translated fresh; a new locale starts at the revision that
+  introduces it and never back-fills history.
+- `notice` is the legal decision, recorded per revision, and the tier drives the UI.
+- A revision that supersedes a still-pending one carries the surviving obligations itself.
+- `effectiveFrom` honours the notice window your own terms promise; the package only checks
+  `>= revision`.
+- `changeSummary` says what changed and why the tier is right - evidence, never user copy.
+- Drafts never sit in the content directory. Use `drafts/` or a branch.
+- Never rewrite git history over policy content.
+
+## What it will not do
+
+- **It never cuts a revision for an erratum.** A fake revision flips your consent gates and
+  re-prompts every user over a comma.
+- **It never puts anything but `<locale>.mdx` files in a revision directory** - no images, no
+  notes. Work in progress goes to `drafts/`.
+- **It does not decide your notice window.** That comes from your own published change-notice
+  clause. Where the window is unclear, it asks you.

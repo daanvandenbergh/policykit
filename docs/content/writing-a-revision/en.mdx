@@ -108,24 +108,14 @@ So the surviving obligations move to the superseding revision. If the superseded
 `reconsent` and its change survives in the new text, record `reconsent` on the **new** revision.
 Otherwise the re-prompt is silently dropped.
 
-## Wire the shipped skill and rules
+## Let an agent do it
 
-The package ships both halves of the agent contract. The skill is the authoring workflow, end to
-end:
-
-```bash
-mkdir -p .claude/skills
-ln -s ../../node_modules/@daanvandenbergh/policykit/skills/policykit .claude/skills/policykit
-```
-
-The rules file carries the judgement calls above; add this line to your `CLAUDE.md` so it loads
-into every session:
-
-```text
-@node_modules/@daanvandenbergh/policykit/rules/policies.md
-```
+The package ships a Claude Code skill that runs this whole workflow, and a rules file that carries
+the judgement calls above into every session. See [`/policykit`](/policykit) for both, including how
+to install them.
 
 ## Next
 
+- [`/policykit`](/policykit) - the shipped skill and rules file.
 - [Policy directories](/policy-directories) - the layout grammar and frontmatter contract.
 - [Validation](/validation) - proving a revision is valid before it deploys.
