@@ -11,6 +11,8 @@ policy as a directory where **a version IS a directory** (`<date>/<locale>.mdx`)
 `Policy` class answers those three questions. Everything else - notice delivery, consent storage,
 your notice-window arithmetic - deliberately stays yours.
 
+**📖 Full documentation: [daanvandenbergh.github.io/policykit](https://daanvandenbergh.github.io/policykit)**
+
 **Contents:** [Install](#install) · [The content directory](#the-content-directory) ·
 [Quickstart](#quickstart) · [The archive route](#the-archive-route) ·
 [The takes-effect banner](#the-takes-effect-banner) ·

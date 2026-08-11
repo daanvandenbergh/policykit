@@ -1,0 +1,123 @@
+---
+title: "Policy directories"
+description: "The on-disk contract policykit enforces: directory grammar, filenames, frontmatter keys, and the errors each rule throws."
+tab: "Guide"
+group: "Author"
+order: 3
+icon: "document"
+keywords:
+    - policy directory
+    - revision directory
+    - frontmatter
+    - effectiveFrom
+    - drafts
+    - validation error
+image: "/assets/docs/policy-directories/hero.en.jpg"
+updated: "2026-08-11"
+---
+
+A policy is a directory of revision directories. A revision is a directory of locale files. The
+loader enforces the whole grammar and throws a `PolicyValidationError` naming the offending entry
+on the first breach.
+
+## The layout
+
+```text
+content/legal/terms/          # the policy dir - `dir` in your Policy config
+    2026-07-07/               # a revision - the directory name IS the revision id
+        en.mdx                # the default locale: carries the frontmatter
+        nl.mdx                # a translation: may carry only `title`
+    2026-08-12/
+        en.mdx
+        nl.mdx
+    drafts/                   # ignored wholesale by the loader
+```
+
+## Naming rules
+
+| Level | Allowed | Rule |
+| --- | --- | --- |
+| Policy root | `YYYY-MM-DD/` directories, plus `drafts/` | Each name must be zero-padded **and** a real calendar day. Nothing else may sit here - no files, no other directories. |
+| Revision dir | `<locale>.mdx` files only | Must match `/^([a-z]{2}(?:-[A-Z]{2})?)\.mdx$/`, and the locale must be in the policy's configured `locales`. |
+
+The calendar check is `isCalendarDay` in `src/policy/load.ts:38` - the shape regex alone would let
+`2026-02-30/` through, and it sorts like a real date. So `2026-8-15/` (unpadded) and `2026-02-30/`
+(not a day) both throw.
+
+Filenames:
+
+| Valid | Invalid |
+| --- | --- |
+| `en.mdx` | `en-us.mdx` - the region must be uppercase |
+| `nl-NL.mdx` | `en.md` - the extension is `.mdx` |
+
+A policy needs at least one revision directory. An empty policy dir throws.
+
+## Frontmatter fields
+
+Metadata lives in **one** file per revision - the default locale's.
+
+| Field | Default-locale file | Other locale files | Rule |
+| --- | --- | --- | --- |
+| `effectiveFrom` | required | not allowed | A real `YYYY-MM-DD` day, `>=` the revision directory name. |
+| `notice` | required | not allowed | One of `none`, `notify`, `reconsent`. |
+| `changeSummary` | required | not allowed | Non-empty string. |
+| `title` | optional | optional | Non-empty string when present. |
+
+Any other key, in any file, is an error - metadata duplicated across locales is metadata that
+drifts. The MDX body must also be non-empty in every file: the body IS the legal text, so
+frontmatter with nothing under it fails rather than shipping as a blank legal document.
+
+```yaml
+---
+effectiveFrom: 2026-08-12
+notice: notify
+changeSummary: "Added the monthly fair-use limit."
+title: "Terms of Service"
+---
+```
+
+See [writing a revision](/writing-a-revision) for what each `notice` tier commits you to, and
+[translations](/translations) for the locale contiguity rule.
+
+## Writing effectiveFrom safely
+
+`coerceIsoDate` (`src/policy/load.ts:479`) accepts two shapes, because YAML produces two: a quoted
+string, and a `Date` at exactly UTC midnight (what an unquoted `2026-08-12` becomes). Three ways to
+get it wrong:
+
+- **A rolled-over date.** YAML resolves the impossible `2026-13-45` to a real but different day
+  (`2027-02-14`). The loader cross-checks the produced day against the raw frontmatter text you
+  wrote; a rolled-over date never appears there, so it is rejected instead of binding the policy on
+  a day nobody chose.
+- **An unpadded date.** `2026-8-5` does not match YAML's date-only timestamp form, so it stays a
+  string and fails the calendar check.
+- **A time component.** `2026-08-12 10:00:00` parses to a `Date` that is not on a midnight
+  boundary. Rejected - the package is day-granular throughout.
+
+Quoting is always safe: `effectiveFrom: "2026-08-12"`.
+
+## What drafts/ does
+
+`drafts/` is the only entry the walk skips, and it is skipped wholesale - contents are never read
+or validated. Put work in progress there, or on a branch.
+
+There is no draft mode and no `published: false` flag. **A committed dated directory IS published**,
+subject only to its `effectiveFrom`.
+
+## Common errors
+
+Every message is prefixed `Policy "<slug>": ` and carries `slug`, `file`, and often `field` on the
+thrown `PolicyValidationError`.
+
+| Message | Fix |
+| --- | --- |
+| `unexpected entry "..." in <dir> - every entry must be a revision directory named after a real YYYY-MM-DD calendar day (or the ignored "drafts/").` | Zero-pad the name, correct the day, or move the entry into `drafts/`. |
+| `unexpected entry "..." - a revision directory may only contain <locale>.mdx files (e.g. "en.mdx", "nl-NL.mdx").` | Remove the stray file or rename it to a locale file. |
+| `"..." is for locale "de", which is not in the configured locales (...)` | Add the locale to your `Policy` config, or delete the file. |
+| `revision <date> is missing its default-locale file "<date>/<locale>.mdx"` | Every revision needs the default locale - it carries the frontmatter. |
+| `frontmatter field "effectiveFrom" is required and must be a real YYYY-MM-DD calendar date.` | Quote it and check the day exists. |
+| `has effectiveFrom X, which is before its revision date Y - a revision cannot take effect before it exists.` | Raise `effectiveFrom`, or rename the revision directory. |
+| `has an empty MDX body - the body IS the legal text` | Write the policy text under the frontmatter. |
+
+Catch all of these before deploy with [validation](/validation).

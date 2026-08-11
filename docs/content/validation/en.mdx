@@ -1,0 +1,109 @@
+---
+title: "Validation"
+description: "Catch a broken policy corpus in CI and at build time, and read the PolicyValidationError that names the file, the field, and the slug."
+tab: "Guide"
+group: "Integrate"
+order: 8
+icon: "shield"
+keywords:
+    - validation
+    - assertValidAll
+    - PolicyValidationError
+    - CI
+    - next build
+    - policy cache
+image: "/assets/docs/validation/hero.en.jpg"
+updated: "2026-08-11"
+---
+
+A malformed policy directory throws a `PolicyValidationError` naming the offending file and field.
+This page covers when that throw happens, how to force it in CI, and what each rule is.
+
+## When validation runs
+
+`new Policy({...})` does zero filesystem access. It checks only what needs no IO - `dir` is
+absolute, `defaultLocale` is in `locales` - and stores the config. Everything else waits for the
+first accessor call.
+
+That is deliberate. Consumers hold module-scope `Policy` instances that their auth layer imports
+transitively, so a typo in a frontmatter block must not crash the app at boot. Instead it fails at
+first use, which in practice means two places:
+
+- **`next build`** fails during page-data collection, the moment a page calls `effective()`,
+  `latest()`, or `content()`.
+- **`assertValid()`** fails in CI, which is where you want to find it.
+
+## Validate the whole set in CI
+
+One test proves a deploy cannot fail on policy content:
+
+```ts
+import { assertValidAll } from "@daanvandenbergh/policykit";
+import { POLICIES } from "@/content/policies";
+
+it("policies are valid", () => assertValidAll(POLICIES));
+```
+
+`assertValidAll` calls each policy's `assertValid()` and adds one check no single policy can make:
+it rejects **duplicate slugs** across the set. That matters because acceptance records key on the
+slug. Two policies sharing one makes every stored acceptance ambiguous - you cannot tell which
+document a user agreed to.
+
+## Reading a PolicyValidationError
+
+The error carries the same facts structurally that the message states in prose, so you can log or
+render them without parsing text:
+
+| Field | Type | Present |
+| --- | --- | --- |
+| `slug` | `string` | always |
+| `file` | `string \| undefined` | when the violation is tied to one entry, relative to the policy dir (e.g. `"2026-07-28/en.mdx"`) |
+| `field` | `string \| undefined` | when the violation is a frontmatter field (e.g. `"effectiveFrom"`) |
+
+Every message is prefixed `Policy "<slug>": ` and names the entry and field it has. `file` is absent
+when the violation is not tied to one entry - a relative `dir`, a missing directory, a duplicate
+slug.
+
+```ts
+import { assertValidAll, PolicyValidationError } from "@daanvandenbergh/policykit";
+
+try {
+    assertValidAll(POLICIES);
+} catch (error) {
+    if (error instanceof PolicyValidationError) {
+        console.error(`[${error.slug}] ${error.file ?? "-"} ${error.field ?? ""}: ${error.message}`);
+    }
+    throw error;
+}
+```
+
+`PolicyValidationError` is exported from the package root and its module is fs-free, so a React
+component can import it for an `instanceof` check without pulling the Node loader into its graph.
+
+## Errors are never cached
+
+The directory walk is **not** memoized. Every accessor re-walks the policy directory, so a violation
+re-throws on every call - a broken build fails loudly each time, never once-then-silently-green. The
+same property makes `next dev` pick up your edits live.
+
+Only the per-file parse is cached, on the `Policy` instance, keyed by `(mtimeMs, size)`. The cache
+is written only after validation succeeds, so a failed parse caches nothing and the next call
+retries.
+
+The one blind spot is inherent to stat-based caching: a rewrite that lands on the **same byte size
+and the same timestamp** is not detected. Touch the file or restart the process if you ever hit it.
+
+## What fails validation
+
+| Condition | Fix |
+| --- | --- |
+| `dir` is a relative path (throws at construction) | Pass an absolute path - `path.join(process.cwd(), "content/legal/terms")`. |
+| `defaultLocale` is not in `locales` (throws at construction) | Add it to `locales`, or drop the `defaultLocale` override. |
+| A revision directory name is not a real, zero-padded calendar day | Rename it - `2026-8-5` and `2026-02-30` both fail. |
+| A stray file or directory sits at the policy root | Delete it, or move it into `drafts/` - the only entry the walk skips. |
+| A revision has no default-locale file | Add `<revision>/<defaultLocale>.mdx`; it carries the revision's frontmatter. |
+| A frontmatter key is not in the allowed set | Remove it. Default-locale files allow `effectiveFrom`, `notice`, `changeSummary`, `title`; other locales allow `title` only. |
+| An MDX body is empty | Write the text under the frontmatter - the body IS the legal document. |
+| A locale exists at revision R but is missing from a later revision | Add the missing translation. Once introduced, a locale must exist for every revision after it. |
+
+For the full grammar behind each of these, see [policy directories](/policy-directories).

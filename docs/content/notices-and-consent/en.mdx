@@ -1,0 +1,144 @@
+---
+title: "Notices and consent"
+description: "Announce a pending policy revision, deliver the notice emails, and re-gate consent - the three jobs a product owes when a policy changes."
+tab: "Guide"
+group: "Integrate"
+order: 7
+icon: "check"
+keywords:
+    - notice
+    - consent
+    - banner
+    - reconsent
+    - noticeQueue
+    - horizon
+image: "/assets/docs/notices-and-consent/hero.en.jpg"
+updated: "2026-08-11"
+---
+
+When a policy revision is published, your product owes three things: a banner announcing it, a
+notice delivered to each user, and - for a `reconsent` revision - a fresh consent gate. Policykit
+answers each question; the delivery and storage stay yours.
+
+**Prerequisites:** a `POLICIES` array of configured `Policy` instances (see
+[getting started](/getting-started)) and revisions carrying a `notice` tier (see
+[writing a revision](/writing-a-revision)).
+
+## Announce the pending revision
+
+`PolicyBanner` is a headless server component. It takes `policies` (required), an optional `now`
+(defaults to `new Date()`), and a render-prop `children` called only when there is something to
+announce - so your callback never handles an empty case. It renders `null` otherwise.
+
+```tsx
+// app/[locale]/layout.tsx
+import { PolicyBanner } from "@daanvandenbergh/policykit/react";
+import { POLICIES } from "@/content/policies";
+
+<PolicyBanner policies={POLICIES}>
+    {({ policy, revision }) => (
+        <aside className="banner">
+            {t(`legal.${policy.slug}.takesEffect`, { date: format(revision.effectiveFrom) })}{" "}
+            <MyLink href={`/legal/${policy.slug}`}>Read it</MyLink>
+        </aside>
+    )}
+</PolicyBanner>
+```
+
+It announces the revision taking effect soonest across the policies you pass. On an
+`effectiveFrom` tie, the first policy in argument order wins. Outside React - an in-app banner
+API, a mail digest header - call the same core function directly; the component is a five-line
+wrapper around it:
+
+```ts
+import { pendingNotice } from "@daanvandenbergh/policykit";
+
+const announcement = pendingNotice(POLICIES, new Date()); // { policy, revision } | undefined
+```
+
+Do not hand-roll this as `policies.map((p) => p.pending(now)).filter(...)`. `pending()` answers
+"what takes effect next for this document" regardless of tier, so it returns a `notice: "none"`
+revision - announcing which contradicts the recorded decision that no notice is owed - and that
+revision then masks any later notice-owing revision behind it. `pendingNotice` skips `"none"`
+revisions **and keeps scanning** the policy, so a pending `"none"` can never swallow a `notify` or
+`reconsent` sitting after it.
+
+## Deliver the notices
+
+`noticeQueue(policies, { now, horizonDays? })` returns every revision that owes notice
+(`notice !== "none"`), will actually bind, and whose `effectiveFrom` is within the horizon or
+still in the future - ordered by policy, then revision ascending. Dedupe delivery per
+`(user, policy, revision.revision)`:
+
+```ts
+import { noticeQueue } from "@daanvandenbergh/policykit";
+
+for (const { policy, revision } of noticeQueue(POLICIES, { now: new Date() })) {
+    await notifyUsersOnce(policy.slug, revision.revision, revision.effectiveFrom);
+}
+```
+
+For one document at a time - a dashboard row, an admin view - use
+`policy.owedNotices({ now, horizonDays? })`, which returns the revisions only and has identical
+semantics.
+
+`horizonDays` defaults to the exported `DEFAULT_NOTICE_HORIZON_DAYS`, which is **60**. The
+boundary is inclusive: a revision exactly 60 days old is still queued that day and gone the next.
+A non-finite or negative `horizonDays` throws a `TypeError` rather than silently dropping owed
+notices.
+
+The horizon is load-bearing. Your dedupe rows expire on a TTL; if the horizon is longer than that
+TTL, every historical revision is re-queued each time its dedupe row is swept, re-notifying every
+user forever on a schedule nobody watches. That is why the constant is exported - assert it
+against your own TTL:
+
+```ts
+import { DEFAULT_NOTICE_HORIZON_DAYS } from "@daanvandenbergh/policykit";
+
+it("the notice horizon stays inside the dedupe TTL", () => {
+    expect(DEFAULT_NOTICE_HORIZON_DAYS).toBeLessThan(NOTIFICATION_TTL_DAYS);
+});
+```
+
+## Re-gate consent
+
+`requiredConsentRevision(policies, now)` returns the revision string a user must have accepted to
+count as consented: the max effective revision that is either a policy's baseline (the first
+revision that ever binds) or carries `notice: "reconsent"`. It returns `""` when nothing is in
+force yet, which correctly means nobody owes consent.
+
+```ts
+import { requiredConsentRevision } from "@daanvandenbergh/policykit";
+
+const required = requiredConsentRevision(POLICIES, new Date());
+// "" means nothing is in force yet, so nobody owes consent; ?? "" keeps a never-accepted
+// user (undefined stamp) from failing the comparison for the wrong reason.
+const consented = required === "" || (user.acceptedPolicyRevision ?? "") >= required;
+```
+
+A `notify` revision never moves this value - notify means existing consent stands. A `reconsent`
+revision moves it only from its `effectiveFrom` day, not from the day it is published.
+
+On acceptance, stamp the function's own return value, evaluated at acceptance time:
+
+```ts
+const accepted = requiredConsentRevision(POLICIES, new Date());
+```
+
+Stamping anything else breaks. One policy's revision lags the joint gate and re-prompts forever;
+the max effective revision across policies can run ahead of a sibling's pending reconsent,
+silently satisfying a gate that was never met. Revisions are zero-padded ISO strings, so string
+order is date order - compare them with `>=` and never convert them to `Date`.
+
+## Superseded revisions do neither
+
+A revision superseded before it ever bound - a newer revision took effect on or before its
+`effectiveFrom` - is never announced, never queued, and never moves the consent gate. Its text
+never binds, so notice about it is misinformation and consent to it is meaningless. If the
+superseding revision still owes that reconsent, record `reconsent` on the superseding revision
+itself.
+
+## Next
+
+[Validation](/validation) covers proving in CI that your policy content cannot break the next
+deploy.

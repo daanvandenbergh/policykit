@@ -1,0 +1,124 @@
+---
+title: "Getting started"
+description: "Install policykit, write your first policy revision on disk, and render it in a Next.js App Router page - in about five minutes."
+tab: "Guide"
+group: "Start"
+order: 1
+icon: "rocket"
+keywords:
+    - getting started
+    - install
+    - quickstart
+    - policy
+    - nextjs
+    - mdx
+image: "/assets/docs/getting-started/hero.en.jpg"
+updated: "2026-08-11"
+---
+
+By the end of this page you have a terms-of-service revision stored on disk and rendered at
+`/en/legal/terms` in your Next.js app.
+
+**Prerequisites:** a Next.js App Router app (Next 14 or newer) with React 18 or newer.
+
+## Install the package
+
+```bash
+npm install @daanvandenbergh/policykit next-mdx-remote
+```
+
+`next`, `react`, and `react-dom` are peer dependencies you already have. `next-mdx-remote` (v5 or
+v6) is the fourth peer, and it is only needed for the `@daanvandenbergh/policykit/react` subpath -
+the part that renders MDX. The root entry imports nothing but `node:fs`, `node:path`, and
+`gray-matter`.
+
+## Create your first revision
+
+A revision IS a directory named after the day you decided it. Create one file inside it, named
+after the locale:
+
+```text
+policies/terms-of-service/
+  2026-08-11/
+    en.mdx
+```
+
+Write `policies/terms-of-service/2026-08-11/en.mdx`. The default locale's file carries the
+revision's metadata, and all three fields are required:
+
+```mdx
+---
+effectiveFrom: 2026-08-11
+notice: none
+changeSummary: "First published terms of service."
+title: "Terms of Service"
+---
+
+## 1. Agreement
+
+By using the service you agree to these terms.
+```
+
+- `effectiveFrom` - a real `YYYY-MM-DD` calendar day, on or after the revision date. Here they
+  match, so the text binds immediately.
+- `notice` - `none`, `notify`, or `reconsent`. A first publish owes nobody notice.
+- `changeSummary` - a non-empty sentence. Internal evidence, never rendered to users.
+- `title` - optional.
+
+The body must not be empty: the MDX body is the legal text, so frontmatter alone is an error.
+
+## Configure the policy
+
+One instance per policy, in one module. `dir` must be **absolute** - the constructor rejects a
+relative path, because the same instance runs from several working directories and would otherwise
+point at different content per cwd.
+
+```ts
+// src/content/policies.ts
+import path from "node:path";
+import { Policy } from "@daanvandenbergh/policykit";
+
+export const termsPolicy = new Policy({
+    slug: "terms-of-service",
+    dir: path.join(process.cwd(), "policies", "terms-of-service"),
+    locales: ["en"],
+});
+```
+
+`defaultLocale` defaults to `"en"` and must be one of `locales`, so a single-locale English policy
+needs no locale config at all.
+
+## Render it
+
+`PolicyDocument` is an async server component that renders one revision's MDX body. Omit
+`revision` and it picks the live-page default itself: the revision that binds today, or the newest
+published one if none binds yet.
+
+```tsx
+// app/[locale]/legal/terms/page.tsx
+import { PolicyDocument } from "@daanvandenbergh/policykit/react";
+import { termsPolicy } from "@/content/policies";
+
+export default async function TermsPage({ params }: { params: Promise<{ locale: string }> }) {
+    const { locale } = await params;
+    return (
+        <article>
+            <PolicyDocument policy={termsPolicy} locale={locale} />
+        </article>
+    );
+}
+```
+
+Run `npm run dev` and open `/en/legal/terms`. You should see the heading "1. Agreement" and the
+sentence below it. That is your MDX body, compiled and served.
+
+Nothing is styled and no title is printed - `PolicyDocument` renders the body only, and the page
+shell stays yours.
+
+## Next
+
+Read [how it works](/how-it-works) for the model behind the directory layout - why a version is a
+directory, and what `effective`, `pending`, and the notice tiers actually decide. When you publish
+your second version, [writing a revision](/writing-a-revision) walks the authoring steps. For
+titles, archive routes, and the MDX component map, see
+[rendering policies](/rendering-policies).

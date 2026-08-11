@@ -1,0 +1,103 @@
+# Deploy a scribekit (Next.js) site to GitHub Pages.
+#
+# Prerequisites (the skill sets these up; verify they are present):
+#   - next.config.* reads NEXT_PUBLIC_BASE_PATH and sets output/basePath from it (see the app template).
+#   - Pages is enabled - the Configure Pages step sets `enablement: true` to do this automatically on the
+#     first run (fallback if an org blocks it: Settings -> Pages -> Source: "GitHub Actions").
+#
+# `actions/configure-pages@v6` outputs the correct `base_path` for your Pages URL (empty for a custom
+# domain / user-org site, "/<repo>" for a project site). We pass it to the build as NEXT_PUBLIC_BASE_PATH
+# so the app owns the base path - both next.config (routes/assets/next.js links) AND the hero <img> read
+# the same value, which is what makes raw /assets hero paths resolve under a project subpath.
+#
+# Every `uses:` is pinned to a full commit SHA with its tag in the trailing comment - a mutable
+# tag can be retargeted at new code. Bump both together (`git ls-remote --tags <repo url>`).
+#
+# If your Next app is NOT at the repo root (e.g. it lives in `web/`), uncomment the
+# `defaults.run.working-directory` block below and set the path, and change the
+# upload `path:` to `<subdir>/out`.
+
+name: Deploy to GitHub Pages
+
+on:
+    push:
+        branches: [main]
+    workflow_dispatch:
+
+# Permissions are granted PER JOB below, never workflow-wide: a workflow-scope `id-token: write`
+# would also hand ACTIONS_ID_TOKEN_REQUEST_URL/_TOKEN to the build job, where `npm ci` runs
+# third-party lifecycle scripts - any one of them could then mint an OIDC token asserting this
+# repo's identity. Only the deploy job (GitHub-owned actions only) gets OIDC.
+
+# One deploy at a time; let an in-flight run finish rather than cancelling it.
+concurrency:
+    group: pages
+    cancel-in-progress: false
+
+jobs:
+    build:
+        runs-on: ubuntu-latest
+        # No id-token here - this job runs `npm ci` (third-party lifecycle scripts) and
+        # `next build`. `pages: write` is needed only by the Configure Pages step's
+        # `enablement: true` (it calls the Pages API to create the site on a fresh repo); enable
+        # Pages by hand once and set `enablement: false` to drop it to `contents: read` alone.
+        permissions:
+            contents: read
+            pages: write
+        defaults:
+            run:
+                working-directory: docs   # the Next app lives in docs/ (repo root is the library)
+        steps:
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+            - name: Set up Node
+              uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+              with:
+                  # Next.js 16 requires Node >= 20.9; 22 is the current LTS.
+                  node-version: 22
+                  # `cache: npm` needs a committed package-lock.json (same as `npm ci` below).
+                  # No lockfile? Remove this line and change `npm ci` to `npm install`.
+                  cache: npm
+                  cache-dependency-path: docs/package-lock.json
+
+            # Outputs `base_path` (e.g. "/<repo>" for a project site, empty/"/" for root hosting).
+            # We do NOT use `static_site_generator: next` here: the app sets its own basePath from
+            # NEXT_PUBLIC_BASE_PATH below, so its hero <img> can read the same value.
+            # `enablement: true` turns Pages on (build type "GitHub Actions") on the first run, so a fresh
+            # repo doesn't fail with "Get Pages site failed / Not Found". If an org policy blocks it,
+            # enable Pages once by hand (Settings -> Pages -> Source: "GitHub Actions") and this is a no-op.
+            - name: Configure Pages
+              id: pages
+              uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+              with:
+                  enablement: true
+
+            - name: Install dependencies
+              run: npm ci
+
+            - name: Build static export
+              env:
+                  # The app's next.config + hero <img> both read this. Root hosting -> resolves to empty.
+                  NEXT_PUBLIC_BASE_PATH: ${{ steps.pages.outputs.base_path }}
+              run: npx --no-install next build
+
+            - name: Upload artifact
+              uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+              with:
+                  path: docs/out
+
+    deploy:
+        needs: build
+        runs-on: ubuntu-latest
+        # The documented minimum for deploy-pages, and the only job that gets OIDC.
+        permissions:
+            pages: write
+            id-token: write
+        environment:
+            name: github-pages
+            url: ${{ steps.deployment.outputs.page_url }}
+        steps:
+            - name: Deploy to GitHub Pages
+              id: deployment
+              uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0

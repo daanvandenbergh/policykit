@@ -1,0 +1,226 @@
+---
+title: "API reference"
+description: "Every export of @daanvandenbergh/policykit: the Policy class, the cross-policy functions, the types, the errors, and the React components."
+tab: "Reference"
+group: "Reference"
+order: 9
+icon: "list"
+keywords:
+    - api
+    - reference
+    - policy
+    - types
+    - react
+    - exports
+image: "/assets/docs/api-reference/hero.en.jpg"
+updated: "2026-08-11"
+---
+
+The complete public surface of `@daanvandenbergh/policykit` version 1.2.0. For how the pieces fit
+together, read [how it works](/how-it-works).
+
+## Entry points
+
+| Import | Contains |
+| --- | --- |
+| `@daanvandenbergh/policykit` | `Policy`, `noticeQueue`, `pendingNotice`, `requiredConsentRevision`, `assertValidAll`, `DEFAULT_NOTICE_HORIZON_DAYS`, every public type, `PolicyValidationError` |
+| `@daanvandenbergh/policykit/react` | `PolicyDocument`, `PolicyBanner`, and their prop types |
+
+The root entry's module graph imports only `node:fs`, `node:path`, and `gray-matter` - never
+`react`, `react-dom`, `next`, `next-mdx-remote`, or `server-only` - so a server-side package under
+a no-react architecture rule can import it safely. A test asserts this over the whole graph, on
+every import, re-export, and dynamic `import()` form.
+
+## Policy
+
+```ts
+new Policy(config: PolicyConfig)
+```
+
+Construction does zero filesystem access. It validates only what needs none: `dir` must be
+absolute, and `defaultLocale` must be one of `locales`. Everything else fails at first use.
+
+### PolicyConfig
+
+| Option | Type | Required | Default |
+| --- | --- | --- | --- |
+| `slug` | `string` | yes | - |
+| `dir` | `string` (absolute) | yes | - |
+| `locales` | `readonly string[]` | yes | - |
+| `defaultLocale` | `string` | no | `"en"` |
+
+Throws `PolicyValidationError` on a relative `dir`, or a `defaultLocale` outside `locales`.
+
+### Fields
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `slug` | `string` | The policy's identifier, as configured. |
+| `locales` | `readonly string[]` | The configured locales, copied. |
+
+### Methods
+
+Every method walks and validates the whole directory, so every one can throw
+`PolicyValidationError`. The walk is never memoized; only the per-file parse is cached.
+
+| Method | Returns | Throws |
+| --- | --- | --- |
+| `revisions()` | `readonly PolicyRevision[]` - all revisions, oldest first | `PolicyValidationError` |
+| `latest()` | `PolicyRevision` - the newest revision by revision date, effective or not | `PolicyValidationError` |
+| `effective(now: Date)` | `PolicyRevision \| undefined` - the newest revision whose `effectiveFrom` is on or before `now`'s UTC day; `undefined` before the first one | `PolicyValidationError` |
+| `pending(now: Date)` | `PolicyRevision \| undefined` - the next revision that will actually bind, superseded ones skipped; `undefined` when nothing is pending | `PolicyValidationError` |
+| `revision(revision: string)` | `PolicyRevision \| undefined` - exact date-string lookup; a miss is `undefined`, never a throw | `PolicyValidationError` |
+| `content(revision: string, locale: string)` | `PolicyContent \| undefined` - the MDX body and that locale file's own title | `PolicyValidationError` |
+| `has(revision: string, locale: string)` | `boolean` - `true` only when the revision exists and carries that locale | `PolicyValidationError` |
+| `owedNotices(options: { now: Date; horizonDays?: number })` | `readonly PolicyRevision[]` - this policy's owed notices, ascending | `PolicyValidationError`, `TypeError` |
+| `assertValid()` | `void` | `PolicyValidationError` |
+
+`pending()` ignores the notice tier, so it can return a `notice: "none"` revision. For a banner,
+use `pendingNotice` instead - see [notices and consent](/notices-and-consent).
+
+## Functions
+
+```ts
+const DEFAULT_NOTICE_HORIZON_DAYS = 60;
+```
+
+How far back `noticeQueue` and `Policy.owedNotices` look when the caller names no horizon.
+
+```ts
+noticeQueue(
+    policies: readonly Policy[],
+    options: { now: Date; horizonDays?: number },
+): readonly { policy: Policy; revision: PolicyRevision }[]
+```
+
+Every revision across `policies` that owes notice (`notice !== "none"`), will bind or already did,
+and whose `effectiveFrom` is within `horizonDays` before `now` or still in the future. Ordered by
+policy, then revision ascending. Throws `PolicyValidationError`, and `TypeError` on a non-finite or
+negative `horizonDays`.
+
+```ts
+pendingNotice(
+    policies: readonly Policy[],
+    now: Date,
+): { policy: Policy; revision: PolicyRevision } | undefined
+```
+
+The one published, not-yet-effective, notice-owing revision taking effect soonest across
+`policies`; `undefined` when there is none. On an `effectiveFrom` tie the first policy in the given
+order wins. Throws `PolicyValidationError`.
+
+```ts
+requiredConsentRevision(policies: readonly Policy[], now: Date): string
+```
+
+The revision string a user must have accepted to count as consented across `policies`: the maximum
+effective revision that is either a policy's baseline or carries `notice: "reconsent"`. Returns
+`""` when nothing is effective yet. Compare a stored acceptance with lexicographic `>=`. Throws
+`PolicyValidationError`.
+
+```ts
+assertValidAll(policies: readonly Policy[]): void
+```
+
+Runs every policy's `assertValid()` and rejects duplicate slugs across the set. Throws
+`PolicyValidationError`. See [validation](/validation).
+
+## Types
+
+```ts
+type PolicyNotice = "none" | "notify" | "reconsent";
+```
+
+```ts
+interface PolicyConfig {
+    slug: string;
+    dir: string;
+    locales: readonly string[];
+    defaultLocale?: string;
+}
+```
+
+```ts
+interface PolicyRevision {
+    readonly revision: string;
+    readonly effectiveFrom: string;
+    readonly notice: PolicyNotice;
+    readonly changeSummary: string;
+    readonly locales: readonly string[];
+    readonly title?: string;
+}
+```
+
+```ts
+interface PolicyContent {
+    readonly source: string;
+    readonly title?: string;
+}
+```
+
+```ts
+interface PolicyValidationErrorDetails {
+    slug: string;
+    file?: string;
+    field?: string;
+}
+```
+
+The `title` asymmetry is deliberate: `PolicyRevision.title` is the default-locale file's title (it
+describes the revision as a whole), while `PolicyContent.title` is the requested locale file's own
+title with no fallback - so a page never shows an English heading above Dutch text.
+
+## Errors
+
+| Thrown | When |
+| --- | --- |
+| `PolicyValidationError` | The constructor rejects the config, or any accessor finds a layout-grammar or frontmatter breach. Carries `slug`, optional `file` (relative to the policy directory), and optional `field`, alongside the message. |
+| `TypeError` | `horizonDays` passed to `noticeQueue` or `Policy.owedNotices` is not a finite, non-negative number. |
+| `Error` | `PolicyDocument` resolved a `(revision, locale)` pair with no content. A plain `Error`, not a validation error: the corpus is valid, the ask was wrong. |
+
+`PolicyValidationError` re-throws on every call - the walk is never cached - so a bad file fails
+`next build` and `assertValid()` repeatably.
+
+## React (`@daanvandenbergh/policykit/react`)
+
+### PolicyDocument
+
+Async server component rendering one revision's MDX body through `next-mdx-remote`, with
+`remark-gfm` always on. It renders the body only - no title, no styling. It reads the filesystem,
+so render it on the server, never inside a `"use client"` tree.
+
+| Prop | Type | Required | Default |
+| --- | --- | --- | --- |
+| `policy` | `Policy` | yes | - |
+| `locale` | `string` | yes | - |
+| `revision` | `string` | no | `policy.effective(new Date()) ?? policy.latest()` |
+| `components` | `MDXRemoteProps["components"]` | no | `undefined` |
+
+Throws a plain `Error` when the resolved pair has no content. Guard archive routes with
+`policy.revision()` or `policy.has()` and 404 first - see
+[rendering policies](/rendering-policies).
+
+### PolicyBanner
+
+Headless server component: it resolves `pendingNotice` and calls `children` with the result, or
+renders `null` when nothing pending owes notice. It reads the filesystem, so it is server-only too.
+
+| Prop | Type | Required | Default |
+| --- | --- | --- | --- |
+| `policies` | `readonly Policy[]` | yes | - |
+| `now` | `Date` | no | `new Date()` |
+| `children` | `(announcement: { policy: Policy; revision: PolicyRevision }) => ReactNode` | yes | - |
+
+Throws `PolicyValidationError` when any policy's directory is invalid.
+
+## Peer dependencies
+
+| Package | Range |
+| --- | --- |
+| `next` | `>=14` |
+| `next-mdx-remote` | `^5 \|\| ^6` |
+| `react` | `>=18` |
+| `react-dom` | `>=18` |
+
+All four are optional. A server-only consumer using the root entry installs nothing extra; only the
+`/react` subpath needs them.

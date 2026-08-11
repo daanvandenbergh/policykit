@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none" role="img" aria-label="policykit">
+    <title>policykit</title>
+    <defs>
+        <!--
+         * The app tile: white rounded ground, mark on the brand ramp - the favicon counterpart of
+         * logo-mark.svg. `userSpaceOnUse` so the ramp runs once across the whole mark; the default
+         * would restart it inside every stroke. Coordinates are in the mark's own 24 space (the group
+         * transform applies to them too).
+         -->
+        <linearGradient id="pk-icon" gradientUnits="userSpaceOnUse" x1="1" y1="3" x2="23" y2="20">
+            <stop offset="0" stop-color="#2563EB" />
+            <stop offset="55%" stop-color="#6D5DF6" />
+            <stop offset="100%" stop-color="#8A54D8" />
+        </linearGradient>
+    </defs>
+    <rect width="128" height="128" rx="30" fill="#fff" />
+    <g transform="translate(23 23) scale(3.4167)" stroke="url(#pk-icon)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 3v17" />
+        <path d="M7 20h10" />
+        <path d="M4 7h16" />
+        <path d="M4 7 1 14h6L4 7Z" />
+        <path d="M20 7l-3 7h6l-3-7Z" />
+    </g>
+</svg>

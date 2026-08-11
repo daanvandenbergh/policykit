@@ -1,0 +1,137 @@
+---
+title: "Translations"
+description: "Ship a policy in several languages: configure locales, split the frontmatter, and satisfy the contiguity rule the loader enforces."
+tab: "Guide"
+group: "Author"
+order: 5
+icon: "globe"
+keywords:
+    - translations
+    - locales
+    - defaultLocale
+    - contiguity
+    - i18n
+    - title fallback
+image: "/assets/docs/translations/hero.en.jpg"
+updated: "2026-08-11"
+---
+
+A revision directory holds one MDX file per locale. This page covers what to configure, what goes
+in which file, and the one rule people trip on: once a locale exists, it can never disappear from
+a later revision.
+
+## Configure the locales
+
+`locales` is the set the consumer serves, and every on-disk locale file must belong to it.
+`defaultLocale` names the file that carries each revision's metadata. It defaults to `"en"` and
+must be a member of `locales` - the constructor throws otherwise, before any filesystem access.
+
+```ts
+import path from "node:path";
+import { Policy } from "@daanvandenbergh/policykit";
+
+export const termsPolicy = new Policy({
+    slug: "terms-of-service",
+    dir: path.join(process.cwd(), "policies", "terms-of-service"),
+    locales: ["en", "nl"],
+    defaultLocale: "en",     // optional; "en" is the default
+});
+```
+
+## Split the frontmatter between the files
+
+The default-locale file carries the revision metadata. Every other locale file carries **only** an
+optional `title`. Any other key in a non-default file is a validation error - metadata duplicated
+across locales is metadata that drifts.
+
+```mdx
+---
+effectiveFrom: 2026-08-12
+notice: notify
+changeSummary: "Added the monthly fair-use limit."
+title: "Terms of Service"
+---
+
+## Fair use
+```
+
+```mdx
+---
+title: "Servicevoorwaarden"
+---
+
+## Redelijk gebruik
+```
+
+The first is `2026-07-28/en.mdx`, the second `2026-07-28/nl.mdx`. Translate the body fresh from
+the new source text; a copied-forward translation validates green and lies.
+
+## Name the locale files
+
+Filenames are matched against `/^([a-z]{2}(?:-[A-Z]{2})?)\.mdx$/`: two lowercase letters, an
+optional hyphen plus two uppercase letters, then `.mdx`.
+
+```text
+en.mdx        valid
+nl-NL.mdx     valid
+NL-nl.mdx     invalid - the case is fixed, lowercase language then uppercase region
+nl.md         invalid - the extension is .mdx
+```
+
+A file that does not match is not an unknown locale, it is an unexpected entry in the revision
+directory, and the error names it.
+
+## Introduce a locale at one revision, then keep it
+
+Locales follow contiguity, not completeness. A locale may appear for the first time at any
+revision - a translation minted today is not the historical document, so backfilling older
+revision directories is forbidden by the authoring rules. From that revision onward it must exist
+for **every** later revision. A forward gap throws:
+
+```text
+Policy "terms-of-service": locale "nl" was introduced at revision 2026-08-01 but is missing
+from revision 2026-09-15 - once introduced, a locale must exist for every later revision.
+```
+
+The reason is the archive. A Dutch reader bound by the 2026-09-15 revision must be able to read
+the text that binds them. A translation that vanishes mid-history leaves them with an English page
+for a version they already accepted.
+
+## Keep disk and config in agreement
+
+A locale file on disk that is not in `config.locales` is an error, not dead content:
+
+```text
+Policy "terms-of-service": "2026-08-01/de.mdx" is for locale "de", which is not in the
+configured locales (en, nl) - a translation the consumer cannot serve is a misconfiguration,
+not dead content.
+```
+
+Either the app is missing a locale it should serve, or somebody committed a translation nobody can
+reach. Both are worth a build failure. See [validation](/validation) for where that failure lands.
+
+## Render the right title
+
+Titles do not fall back. `content(revision, locale).title` is that locale file's own `title`, and
+`PolicyRevision.title` is the default locale's. A silent fallback would print an English heading
+above Dutch text, so the choice stays yours:
+
+```tsx
+const shown = termsPolicy.effective(now) ?? termsPolicy.latest();
+const title = termsPolicy.content(shown.revision, locale)?.title ?? shown.title;
+```
+
+## List the locales a revision actually has
+
+`PolicyRevision.locales` is the locales **present at that revision**, in the configured order - not
+`config.locales`. Read it per revision so a language switcher on an old revision offers only the
+languages that revision was published in.
+
+```ts
+// nl was introduced at 2026-08-01
+termsPolicy.revision("2026-07-07")?.locales;    // ["en"]
+termsPolicy.revision("2026-08-01")?.locales;    // ["en", "nl"]
+```
+
+`Policy.has(revision, locale)` is the cheap yes/no when you only need to decide between rendering
+and a 404. See [rendering policies](/rendering-policies) for the route shapes.

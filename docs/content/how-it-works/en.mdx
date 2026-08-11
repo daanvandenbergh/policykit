@@ -1,0 +1,119 @@
+---
+title: "How it works"
+description: "The mental model behind policykit: a version is a directory, two dates decide what binds, and three notice tiers decide what you owe users."
+tab: "Guide"
+group: "Start"
+order: 2
+icon: "book"
+keywords:
+    - mental model
+    - revision
+    - effectiveFrom
+    - notice tiers
+    - supersession
+    - UTC day
+image: "/assets/docs/how-it-works/hero.en.jpg"
+updated: "2026-08-11"
+---
+
+policykit answers three questions about a legal document: which text binds right now, what notice
+you owe users, and how to render any past text again. Here is the model behind the answers.
+
+## Why a version is a directory
+
+No manifest, no registry, no database table. A revision exists because a directory named after its
+date exists:
+
+```text
+content/policies/terms-of-service/
+    2026-01-10/
+        en.mdx
+    2026-06-01/
+        en.mdx
+    2026-06-20/
+        en.mdx
+```
+
+The directory name IS the revision's identity. Adding a version means adding a folder.
+
+That buys the audit trail for free: `git log` over the policy directory records who wrote which
+text and when, so you can show what a user could have seen on the day they accepted. Which is why
+you never rewrite history over policy content - the log is part of the acceptance-evidence chain.
+
+## The two dates that matter
+
+Every revision carries two dates, and mixing them up is the most common bug:
+
+- **`revision`** - the directory name. When the text was published.
+- **`effectiveFrom`** - a frontmatter field, validated to be on or after `revision`. When the text
+  starts to bind.
+
+The gap between them is the notice window you granted. Three accessors read it differently
+(`src/policy/policy.ts:162-213`):
+
+- `latest()` - the newest revision by `revision`. Published, possibly not binding yet.
+- `effective(now)` - the newest revision whose `effectiveFrom` has arrived. What a consent gate
+  compares against and what an acceptance stamps.
+- `pending(now)` - the revision that binds next. What a "takes effect on {date}" banner announces.
+
+Take one policy with these three revisions:
+
+| `revision` | `effectiveFrom` | `notice` |
+| --- | --- | --- |
+| `2026-01-10` | `2026-01-10` | `none` |
+| `2026-06-01` | `2026-07-01` | `notify` |
+| `2026-06-20` | `2026-06-25` | `reconsent` |
+
+On 15 June 2026, `latest()` returns `2026-06-20`, `effective(now)` still returns `2026-01-10`, and
+`pending(now)` returns `2026-06-20`. Ten days later, on 25 June, `effective(now)` returns
+`2026-06-20` and `pending(now)` returns `undefined`.
+
+## What each notice tier means
+
+`notice` is a recorded human judgement, not something the package computes
+(`src/policy/types.ts:14`). Unsure between two tiers? Record the stricter one.
+
+- **`none`** - non-material, or forced by law or security. Nothing queued, nothing announced.
+- **`notify`** - users must be told, but existing consent stands. It appears in `noticeQueue()` and
+  in the banner; it never re-prompts anyone.
+- **`reconsent`** - users must expressly accept again. Once effective, it moves the value
+  `requiredConsentRevision()` returns, so every older stored acceptance fails the gate.
+
+## When a revision never binds
+
+A revision is **superseded** when any newer revision takes effect on or before its own
+`effectiveFrom` (`src/policy/policy.ts:32-43`). In the table above, `2026-06-01` is superseded:
+`2026-06-20` binds six days earlier, so the older text never binds for a single moment. This
+happens for real - an immediate law or security change shipped while an earlier notice window is
+still running.
+
+Superseded revisions stay in the archive and `revisions()` still lists them, but `pending()`,
+`owedNotices()`, `noticeQueue()`, `pendingNotice()` and `requiredConsentRevision()` all skip them:
+announcing or gating on a text that will never bind is misinformation. If the superseded change
+survives in the new text, record its tier on the superseding revision instead.
+
+## Two conventions that surprise people
+
+**`now` reduces to its UTC calendar day.** Every binding comparison runs
+`now.toISOString().slice(0, 10)` (`src/policy/policy.ts:16-18`), so a revision takes effect at UTC
+midnight of its `effectiveFrom` - identically for every user and every server, never at each
+server's local midnight.
+
+**Revisions stay zero-padded ISO strings, end to end**, compared with lexicographic `>=` and never
+converted to `Date`. Zero-padded ISO sorts chronologically as text, so the comparison is exact and
+there is no timezone or parser to get wrong. Store an accepted revision the same way:
+`accepted >= requiredConsentRevision(POLICIES, new Date())`.
+
+## Why nothing is read until you ask
+
+`new Policy({...})` touches no disk; it validates the config and stores it. Consumers hold
+module-scope instances their auth layer imports transitively, so a malformed policy file must fail
+loudly at first use - in `next build`, or in `assertValid()` in a test - rather than crash the app
+at import time.
+
+The walk is never memoized either: every accessor re-walks the tree, so `next dev` sees an edit
+immediately and a validation error re-throws on every call. Only the per-file parse is cached,
+keyed by `(mtimeMs, size)` (`src/policy/load.ts:140-142`).
+
+See [validation](/validation) for what the walk enforces, and
+[notices and consent](/notices-and-consent) for wiring the tiers into an app.

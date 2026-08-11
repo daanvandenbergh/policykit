@@ -21,6 +21,10 @@ src/
     types.ts                        #   Public types (PolicyRevision, PolicyConfig, ...)
     errors.ts                       #   PolicyValidationError
   react/                            # React subpath ("./react"): the PolicyDocument renderer
+docs/                               # The published docs site (Next.js, static export -> GitHub Pages)
+  app/(docs)/                       #   Routes + the single `new Docs(...)` instance in _docs.ts
+  content/<slug>/en.mdx             #   One page per folder, served at /<slug> (basePath is "/")
+  public/assets/                    #   The logo mark and the per-page hero JPEGs
 ```
 
 The root entry's module graph imports ONLY `node:fs`, `node:path`, and `gray-matter` - never
@@ -31,10 +35,13 @@ enforced at the source by `src/policy/tests/architecture.test.ts`. Keep it that 
 ## The public contract stays in lockstep
 
 Any change to the package's API, layout grammar, or frontmatter contract updates
-`skills/policykit/SKILL.md`, `rules/policies.md`, and the README in the SAME change - they are
-the package's public contract for agents and humans, and a doc that lags the code is part of the
-definition of NOT done.
+`skills/policykit/SKILL.md`, `rules/policies.md`, the README, and the `docs/content/` pages in the
+SAME change - they are the package's public contract for agents and humans, and a doc that lags the
+code is part of the definition of NOT done. The imported `docs_parity` rule governs the docs site;
+here it also covers the on-disk revision layout, which is user-visible, so a change to it is a
+docs-affecting change.
 
+@node_modules/@daanvandenbergh/scribekit/rules/docs_parity.md
 @node_modules/@daanvandenbergh/claudekit/rules/ts_coding_standards.md
 @node_modules/@daanvandenbergh/claudekit/rules/core_principles.md
 @node_modules/@daanvandenbergh/claudekit/rules/workflow.md

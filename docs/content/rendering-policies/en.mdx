@@ -1,0 +1,151 @@
+---
+title: "Rendering policies"
+description: "Put a policy on the page with PolicyDocument: the live route, the archive route, the guards that 404, and the MDX component map."
+tab: "Guide"
+group: "Integrate"
+order: 6
+icon: "code"
+keywords:
+    - PolicyDocument
+    - render
+    - archive route
+    - mdx components
+    - server component
+    - nextjs
+image: "/assets/docs/rendering-policies/hero.en.jpg"
+updated: "2026-08-11"
+---
+
+This page covers the two routes every policy needs: the live page at `/legal/terms` and the
+archive page at `/legal/terms/[revision]`. Both render through `PolicyDocument`, an async server
+component that emits one revision's MDX body and nothing else.
+
+**Prerequisites:** a configured `Policy` instance (see [getting started](/getting-started)) and
+`next-mdx-remote` installed.
+
+## What PolicyDocument takes
+
+```tsx
+import { PolicyDocument } from "@daanvandenbergh/policykit/react";
+```
+
+| Prop | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `policy` | `Policy` | yes | The configured instance to render from. |
+| `locale` | `string` | yes | The locale to render. Must exist for the resolved revision. |
+| `revision` | `string` | no | The revision to render, `"YYYY-MM-DD"`. |
+| `components` | `MDXRemoteProps["components"]` | no | The MDX component map, forwarded to `MDXRemote`. |
+
+Omit `revision` and the component resolves it itself, as
+`(policy.effective(new Date()) ?? policy.latest()).revision` - the text that binds today, or the
+newest published text when nothing binds yet. That is the live-page default, computed at render
+time.
+
+## Render the live page
+
+Pass `revision` explicitly whenever you also render metadata around the body. It keeps your title
+and the body on the same revision instead of letting the two resolve `now` separately.
+
+```tsx
+// app/[locale]/legal/terms/page.tsx
+import { PolicyDocument } from "@daanvandenbergh/policykit/react";
+import { termsPolicy } from "@/content/policies";
+import { MyLink } from "@/components/MyLink"; // your locale-aware link component
+
+export default async function TermsPage({ params }: { params: Promise<{ locale: string }> }) {
+    const { locale } = await params;
+    const now = new Date();
+    const shown = termsPolicy.effective(now) ?? termsPolicy.latest();
+    const pending = termsPolicy.pending(now);
+    // The locale file's own title; shown.title is the DEFAULT locale's and would be the wrong
+    // language here (content() deliberately does no fallback - the fallback is your call).
+    const title = termsPolicy.content(shown.revision, locale)?.title ?? shown.title;
+    return (
+        <article className="prose">
+            <h1>{title}</h1>
+            {pending && <p>A new version takes effect on {pending.effectiveFrom}.</p>}
+            <PolicyDocument
+                policy={termsPolicy}
+                locale={locale}
+                revision={shown.revision}
+                components={{ a: MyLink }}
+            />
+        </article>
+    );
+}
+```
+
+`content(...).title` is that locale file's own `title:`, with no default-locale fallback -
+otherwise you would print an English heading above Dutch text.
+
+## Serve the archive
+
+Old revisions are the version archive, so give them a dynamic segment. The route param is
+untrusted, and both guards are needed because they answer different questions: `revision()` asks
+whether that revision exists at all, `content()` asks whether it carries this locale. A locale
+introduced in 2027 is legally absent from the 2026 revisions, so a real revision plus a real
+locale can still be a legitimate 404.
+
+```tsx
+// app/[locale]/legal/terms/[revision]/page.tsx
+import { notFound } from "next/navigation";
+import { PolicyDocument } from "@daanvandenbergh/policykit/react";
+import { termsPolicy } from "@/content/policies";
+
+export default async function TermsRevisionPage({ params }: {
+    params: Promise<{ locale: string; revision: string }>;
+}) {
+    const { locale, revision } = await params;
+    if (!termsPolicy.revision(revision)) notFound();
+    if (!termsPolicy.content(revision, locale)) notFound(); // locale may legally be absent here
+    return <PolicyDocument policy={termsPolicy} locale={locale} revision={revision} />;
+}
+```
+
+Neither guard throws on a miss - both return `undefined`. When you need no title from the file,
+`termsPolicy.has(revision, locale)` answers both questions in one call without reading the body.
+
+## Why a missed guard throws a plain Error
+
+If the resolved `(revision, locale)` pair has no content, `PolicyDocument` throws:
+
+```text
+Policy "terms-of-service" has no content for revision "2026-07-07" in locale "nl" - guard with
+policy.revision()/policy.content() and 404 on undefined before rendering PolicyDocument.
+```
+
+That is a plain `Error`, not `PolicyValidationError`. The distinction is deliberate and worth
+matching in your own error handling: `PolicyValidationError` means the corpus on disk is broken
+and a human must fix a file. This throw means the corpus is fine and the *ask* was wrong - an
+unguarded route param. Guard first; the throw is only the loud backstop.
+
+## What ships, and what does not
+
+`remark-gfm` is always on and cannot be turned off. Legal documents carry pipe tables - a DPA's
+subprocessor list, for one - and without GFM a pipe table does not fail loudly. It renders as a
+paragraph of literal `|` characters, which is content corruption in a document that is legal
+evidence.
+
+Nothing else ships. No CSS, no `<h1>`, no "last updated" label, no prose wrapper. The component
+renders the body and stops, so the page shell, the styling, and the metadata line are yours.
+
+## Override MDX elements
+
+`components` is forwarded straight to `MDXRemote`. policykit never imports `next/link`, so the
+link component is the one override nearly every app needs:
+
+```tsx
+<PolicyDocument policy={termsPolicy} locale={locale} components={{ a: MyLink }} />
+```
+
+Map any MDX element the same way: `{ a: MyLink, table: MyTable, h2: MySection }`.
+
+## Server components only
+
+`PolicyDocument` reads the filesystem on every render. It is a server component and must never
+appear inside a `"use client"` tree - the same rule applies to `PolicyBanner`.
+
+## Next
+
+- [Notices and consent](/notices-and-consent) - the banner, the notice queue, and the consent gate.
+- [API reference](/api-reference) - every export, signature, and default.
