@@ -1,6 +1,6 @@
 {
     "name": "@daanvandenbergh/policykit",
-    "version": "1.1.1",
+    "version": "1.1.2",
     "description": "Versioned legal policies as MDX for Next.js App Router: a directory per revision, a file per locale, and a Policy class that answers which revision binds now, what notice is owed, and renders any revision in any locale - plus Claude Code rules and a skill for authoring revisions.",
     "license": "UNLICENSED",
     "type": "module",
