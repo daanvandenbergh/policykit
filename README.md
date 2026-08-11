@@ -1,6 +1,6 @@
 # @daanvandenbergh/policykit
 
-![Versioned legal policies as MDX](claude/scribekit-hero/readme/hero.png)
+![Versioned legal policies as MDX](.agent/scribekit-hero/readme/hero.png)
 
 Versioned legal policies as MDX for **Next.js App Router**. A legal policy (terms of service,
 privacy policy, DPA, ...) is a *versioned document*, not UI: it has revisions, each revision has
