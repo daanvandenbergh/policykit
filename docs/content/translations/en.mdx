@@ -23,8 +23,14 @@ a later revision.
 ## Configure the locales
 
 `locales` is the set the consumer serves, and every on-disk locale file must belong to it.
-`defaultLocale` names the file that carries each revision's metadata. It defaults to `"en"` and
-must be a member of `locales` - the constructor throws otherwise, before any filesystem access.
+`defaultLocale` names the file that carries each revision's metadata, and that file must exist for
+**every** revision. It defaults to `"en"` and must be a member of `locales` - the constructor throws
+otherwise, before any filesystem access.
+
+`locales` entries have to be expressible as filenames, and the grammar below admits only a
+two-letter language with an optional two-letter region. A three-letter code (`fil`) or a script
+subtag (`zh-Hans`) can never match a file, so a policy configured with one throws on every
+revision.
 
 ```ts
 import path from "node:path";
@@ -46,7 +52,7 @@ across locales is metadata that drifts.
 
 ```mdx
 ---
-effectiveFrom: 2026-08-12
+effectiveFrom: "2026-08-12"
 notice: notify
 changeSummary: "Added the monthly fair-use limit."
 title: "Terms of Service"
@@ -63,7 +69,7 @@ title: "Servicevoorwaarden"
 ## Redelijk gebruik
 ```
 
-The first is `2026-07-28/en.mdx`, the second `2026-07-28/nl.mdx`. Translate the body fresh from
+The first is `2026-08-01/en.mdx`, the second `2026-08-01/nl.mdx`. Translate the body fresh from
 the new source text; a copied-forward translation validates green and lies.
 
 ## Name the locale files
@@ -76,17 +82,20 @@ en.mdx        valid
 nl-NL.mdx     valid
 NL-nl.mdx     invalid - the case is fixed, lowercase language then uppercase region
 nl.md         invalid - the extension is .mdx
+fil.mdx       invalid - three-letter languages are not expressible
+zh-Hans.mdx   invalid - script subtags are not expressible
 ```
 
-A file that does not match is not an unknown locale, it is an unexpected entry in the revision
-directory, and the error names it.
+A file that does not match is reported as an unexpected entry in the revision directory, and the
+error names it. [Policy directories](/policy-directories) carries the same grammar for the whole
+layout.
 
 ## Introduce a locale at one revision, then keep it
 
-Locales follow contiguity, not completeness. A locale may appear for the first time at any
-revision - a translation minted today is not the historical document, so backfilling older
-revision directories is forbidden by the authoring rules. From that revision onward it must exist
-for **every** later revision. A forward gap throws:
+Translations must be contiguous from where they start, and need not cover the whole archive. A
+translation may appear for the first time at any revision - a translation minted today is not the
+historical document, so backfilling older revision directories is forbidden by the authoring rules.
+From that revision onward it must exist for **every** later revision. A forward gap throws:
 
 ```text
 Policy "terms-of-service": locale "nl" was introduced at revision 2026-08-01 but is missing
@@ -97,9 +106,14 @@ The reason is the archive. A Dutch reader bound by the 2026-09-15 revision must 
 the text that binds them. A translation that vanishes mid-history leaves them with an English page
 for a version they already accepted.
 
+This rule applies to translations only. The default locale is exempt from it because it can never
+be absent: every revision must carry its default-locale file, since that is where the frontmatter
+lives.
+
 ## Keep disk and config in agreement
 
-A locale file on disk that is not in `config.locales` is an error, not dead content:
+A locale file on disk that is not in the policy's configured `locales` is an error, not dead
+content:
 
 ```text
 Policy "terms-of-service": "2026-08-01/de.mdx" is for locale "de", which is not in the
@@ -116,16 +130,17 @@ Titles do not fall back. `content(revision, locale).title` is that locale file's
 `PolicyRevision.title` is the default locale's. A silent fallback would print an English heading
 above Dutch text, so the choice stays yours:
 
-```tsx
-const shown = termsPolicy.effective(now) ?? termsPolicy.latest();
+```ts
+// `locale` is the route param for the page being rendered.
+const shown = termsPolicy.effective(new Date()) ?? termsPolicy.latest();
 const title = termsPolicy.content(shown.revision, locale)?.title ?? shown.title;
 ```
 
 ## List the locales a revision actually has
 
-`PolicyRevision.locales` is the locales **present at that revision**, in the configured order - not
-`config.locales`. Read it per revision so a language switcher on an old revision offers only the
-languages that revision was published in.
+`PolicyRevision.locales` is the locales **present at that revision**, in the configured order,
+which may be a subset of the policy's own `locales`. Read it per revision so a language switcher on
+an old revision offers only the languages that revision was published in.
 
 ```ts
 // nl was introduced at 2026-08-01

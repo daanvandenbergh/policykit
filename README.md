@@ -163,6 +163,7 @@ default itself - fine when you render no revision metadata around it.
 **3. Validate in CI.** One test proves a deploy cannot fail on policy content:
 
 ```ts
+import { it } from "vitest";
 import { assertValidAll } from "@daanvandenbergh/policykit";
 import { POLICIES } from "@/content/policies";
 
@@ -222,7 +223,7 @@ decision that no notice is owed), and it never masks a later notice-owing revisi
 Superseded revisions are excluded, same as everywhere. Pass `now` to pin the clock in tests.
 
 Need the same answer outside React (an in-app banner API, a mail digest header)? The core
-exports it directly - the component is a five-line wrapper around this:
+exports it directly - the component is a thin wrapper around this:
 
 ```ts
 import { pendingNotice } from "@daanvandenbergh/policykit";
@@ -363,9 +364,12 @@ Root entry - react-free:
   effective; during a notice window it is published but not yet binding, so never what an
   acceptance stamps).
 - `policy.effective(now)` - the revision that BINDS at `now`, or `undefined` before the first
-  `effectiveFrom`. What consent gates compare against and what acceptance stamps.
+  `effectiveFrom`. What the live page renders, as `effective(now) ?? latest()`. NOT the consent
+  gate - that is `requiredConsentRevision`, and stamping this instead has a named failure mode
+  (see [the consent job](#the-consent-job)).
 - `policy.pending(now)` - published, not yet effective, and still going to bind (superseded
-  revisions are never announced); drives the "takes effect on" banner.
+  revisions are never announced). The right call to label ONE document's next version on its own
+  page; a site-wide "takes effect on" banner uses `pendingNotice`, which also filters by tier.
 - `policy.revision(date)` - lookup by exact revision string; `undefined` on a miss, never throws
   on the lookup itself (an invalid corpus still throws `PolicyValidationError`).
 - `policy.content(revision, locale)` - `{ source, title? }` or `undefined` (absence is an

@@ -166,8 +166,13 @@ export class Policy {
 
     /**
      * The revision that BINDS at `now`: the newest revision whose `effectiveFrom` is on or
-     * before `now`'s UTC day. THIS is what consent gates compare against and what an acceptance
-     * stamps - during a notice window a user accepts the text that binds, never the pending one.
+     * before `now`'s UTC day. This is what a live policy page RENDERS (`effective(now) ??
+     * latest()`) - during a notice window a user reads the text that binds, never the pending one.
+     *
+     * NOT the consent gate. That is {@link requiredConsentRevision}, which additionally filters to
+     * baseline/reconsent revisions - stamping this value instead is a named failure mode there,
+     * because the max effective revision across policies can run AHEAD of a sibling policy's
+     * pending reconsent and silently satisfy the gate once that reconsent binds.
      *
      * @param now - the instant to evaluate, reduced to its UTC calendar day.
      * @returns the binding revision, or `undefined` before the first `effectiveFrom`.

@@ -19,7 +19,8 @@ updated: "2026-08-11"
 By the end of this page you have a terms-of-service revision stored on disk and rendered at
 `/en/legal/terms` in your Next.js app.
 
-**Prerequisites:** a Next.js App Router app (Next 14 or newer) with React 18 or newer.
+**Prerequisites:** a Next.js App Router app with React 18 or newer. The package's peer range starts
+at Next 14; the route sample below uses the async `params` shape, which is Next 15 and up.
 
 ## Install the package
 
@@ -44,7 +45,8 @@ policies/terms-of-service/
 ```
 
 Write `policies/terms-of-service/2026-08-11/en.mdx`. The default locale's file carries the
-revision's metadata, and all three fields are required:
+revision's metadata: `effectiveFrom`, `notice`, and `changeSummary` are required, `title` is
+optional.
 
 ```mdx
 ---
@@ -85,8 +87,9 @@ export const termsPolicy = new Policy({
 });
 ```
 
-`defaultLocale` defaults to `"en"` and must be one of `locales`, so a single-locale English policy
-needs no locale config at all.
+`locales` is required - it is the set of languages you serve, and every locale file on disk must
+belong to it. `defaultLocale` is optional: it defaults to `"en"` and must be one of `locales`, so a
+single-locale English policy never sets it.
 
 ## Render it
 
@@ -115,10 +118,14 @@ sentence below it. That is your MDX body, compiled and served.
 Nothing is styled and no title is printed - `PolicyDocument` renders the body only, and the page
 shell stays yours.
 
-## Next
+This route serves one locale, so it renders as written. Once the `[locale]` segment can hold a
+language the policy does not have, guard before rendering: `PolicyDocument` throws when the
+resolved revision has no file for that locale. [Rendering policies](/rendering-policies) has the
+guard-then-404 recipe.
 
-Read [how it works](/how-it-works) for the model behind the directory layout - why a version is a
-directory, and what `effective`, `pending`, and the notice tiers actually decide. When you publish
-your second version, [writing a revision](/writing-a-revision) walks the authoring steps - or install
-[`/policykit`](/policykit), the Claude Code skill that runs those steps for you. For titles, archive
-routes, and the MDX component map, see [rendering policies](/rendering-policies).
+## Related
+
+When you publish your second version, [writing a revision](/writing-a-revision) walks the authoring
+steps - or install [`/policykit`](/policykit), the Claude Code skill that runs those steps for you.
+For titles, archive routes, and the MDX component map, see
+[rendering policies](/rendering-policies).

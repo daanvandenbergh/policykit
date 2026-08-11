@@ -23,7 +23,7 @@ on the first breach.
 ## The layout
 
 ```text
-content/legal/terms/          # the policy dir - `dir` in your Policy config
+policies/terms-of-service/    # the policy dir - point Policy's absolute `dir` here
     2026-07-07/               # a revision - the directory name IS the revision id
         en.mdx                # the default locale: carries the frontmatter
         nl.mdx                # a translation: may carry only `title`
@@ -68,9 +68,14 @@ Any other key, in any file, is an error - metadata duplicated across locales is 
 drifts. The MDX body must also be non-empty in every file: the body IS the legal text, so
 frontmatter with nothing under it fails rather than shipping as a blank legal document.
 
+Two more rules apply to the frontmatter block as a whole. It must be a **YAML mapping** of
+`key: value` pairs - a bare scalar such as `2026-07-07` (which YAML resolves to a date) or a list
+fails. And syntactically **invalid YAML** is wrapped into a `PolicyValidationError` naming the file
+rather than escaping raw, because a stray colon is the likeliest authoring mistake there is.
+
 ```yaml
 ---
-effectiveFrom: 2026-08-12
+effectiveFrom: "2026-08-12"
 notice: notify
 changeSummary: "Added the monthly fair-use limit."
 title: "Terms of Service"
@@ -87,9 +92,11 @@ string, and a `Date` at exactly UTC midnight (what an unquoted `2026-08-12` beco
 get it wrong:
 
 - **A rolled-over date.** YAML resolves the impossible `2026-13-45` to a real but different day
-  (`2027-02-14`). The loader cross-checks the produced day against the raw frontmatter text you
-  wrote; a rolled-over date never appears there, so it is rejected instead of binding the policy on
-  a day nobody chose.
+  (`2027-02-14`). The loader requires the produced day to appear literally in the raw frontmatter
+  text you wrote - a rolled-over date normally does not, so it is rejected instead of binding the
+  policy on a day nobody chose. It is a substring check over the whole block, so a day that also
+  happens to appear in, say, your `changeSummary` will slip through. Quoting removes the ambiguity
+  outright.
 - **An unpadded date.** `2026-8-5` does not match YAML's date-only timestamp form, so it stays a
   string and fails the calendar check.
 - **A time component.** `2026-08-12 10:00:00` parses to a `Date` that is not on a midnight
@@ -99,16 +106,19 @@ Quoting is always safe: `effectiveFrom: "2026-08-12"`.
 
 ## What drafts/ does
 
-`drafts/` is the only entry the walk skips, and it is skipped wholesale - contents are never read
-or validated. Put work in progress there, or on a branch.
+`drafts/` is the only entry the walk skips, and only when it is a directory - a *file* named
+`drafts` is a stray root entry like any other. It is skipped wholesale: contents are never read or
+validated. Put work in progress there, or on a branch. The skip applies at the policy root only;
+inside a revision directory, a `drafts/` folder is just another unexpected entry and throws.
 
 There is no draft mode and no `published: false` flag. **A committed dated directory IS published**,
 subject only to its `effectiveFrom`.
 
 ## Common errors
 
-Every message is prefixed `Policy "<slug>": ` and carries `slug`, `file`, and often `field` on the
-thrown `PolicyValidationError`.
+Every message a policy directory produces is prefixed `Policy "<slug>": `. The thrown
+`PolicyValidationError` always carries `slug`; it carries `file` when the breach is tied to one
+entry, and `field` when it is a frontmatter field.
 
 | Message | Fix |
 | --- | --- |
@@ -118,6 +128,11 @@ thrown `PolicyValidationError`.
 | `revision <date> is missing its default-locale file "<date>/<locale>.mdx"` | Every revision needs the default locale - it carries the frontmatter. |
 | `frontmatter field "effectiveFrom" is required and must be a real YYYY-MM-DD calendar date.` | Quote it and check the day exists. |
 | `has effectiveFrom X, which is before its revision date Y - a revision cannot take effect before it exists.` | Raise `effectiveFrom`, or rename the revision directory. |
+| `frontmatter field "notice" is required and must be one of: none, notify, reconsent.` | Set one of the three tiers - see [writing a revision](/writing-a-revision). |
+| `frontmatter field "changeSummary" is required and must be a non-empty string.` | Write one sentence saying what changed and why the tier is right. |
+| `frontmatter field "<key>" is not allowed here - allowed keys: effectiveFrom, notice, changeSummary, title.` | Remove the key. Non-default locale files allow `title` only. |
+| `frontmatter must be a YAML mapping of key: value pairs.` | The block resolved to a scalar or a list - restore the `key: value` shape. |
+| `has invalid frontmatter YAML: ...` | Fix the YAML syntax; a stray colon in an unquoted string is the usual cause. |
 | `has an empty MDX body - the body IS the legal text` | Write the policy text under the frontmatter. |
 
 Catch all of these before deploy with [validation](/validation).

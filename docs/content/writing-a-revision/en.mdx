@@ -22,7 +22,11 @@ checklist for cutting one.
 
 Material means the meaning moved - a right, a price, a limit, an obligation, a data practice.
 If you have to ask, it is material. A typo, a broken link or a formatting fix is an erratum:
-edit the published file in place and stop. Git is the errata trail.
+edit the published file in place and stop. Git is the errata trail. If the fix turned out to change
+what a clause means, it was never an erratum - revert it and cut a revision.
+
+**Prerequisites:** a configured `Policy` (see [getting started](/getting-started)). Its `dir`,
+`locales`, and `defaultLocale` decide which files this revision needs.
 
 ## Copy the newest revision to a new dated directory
 
@@ -31,25 +35,29 @@ directory name is the revision's whole identity.
 
 ```bash
 cd policies/terms-of-service
-cp -r 2026-07-07 2026-07-28
+cp -r 2026-07-07 2026-08-11
 ```
 
 Copy every locale file, then rewrite each one. Translations are made fresh from the new source
-text - a copied-forward translation validates green and lies.
+text - a copied-forward translation validates green and lies. See
+[translations](/translations) for which locales a revision owes.
 
 ## Edit the text and set the frontmatter
 
-Only the default locale's file (`en.mdx` unless you configured otherwise) carries metadata. All
-three fields are required:
+Only the default locale's file (`en.mdx` unless you configured otherwise) carries metadata.
+`effectiveFrom`, `notice`, and `changeSummary` are required; `title` is optional:
 
 ```yaml
 ---
-effectiveFrom: 2026-08-12
+effectiveFrom: "2026-08-25"
 notice: notify
 changeSummary: "Added the monthly fair-use limit and retiered change notice."
 title: "Terms of Service"
 ---
 ```
+
+Quote `effectiveFrom`. An unquoted date works, but YAML rolls an impossible one over to a real
+different day - [policy directories](/policy-directories) has the traps.
 
 Other locale files may carry an optional `title:` and nothing else. Every file needs a non-empty
 MDX body.
@@ -59,15 +67,16 @@ two is your notice window.
 
 ## Choose the notice tier
 
-`notice` is the recorded legal decision, and it drives the UI. Work down this list and stop at
-the first match:
+`notice` is the recorded legal decision, and it drives the UI:
 
 - **`reconsent`** - users must expressly accept again. Queued for notice, announced by the
   banner, and moves `requiredConsentRevision` from its `effectiveFrom` day.
-- **`notify`** - the change materially reduces what a customer gets, but existing consent
-  stands. Queued and announced; never re-prompts consent.
+- **`notify`** - a material change that does not require fresh consent. Queued and announced;
+  never re-prompts consent.
 - **`none`** - non-material, or a change forced by law or security that owes no notice. Nothing
-  is queued, no banner, consent gate unmoved.
+  is queued and no banner. It does not move the consent gate - with one exception: a policy's
+  **first** revision is its baseline and sets the gate whatever its tier, so adding a new policy
+  re-gates consent even at `none`.
 
 Unsure? Take the stricter tier. A `none` revision is never announced by `pendingNotice` or
 `PolicyBanner` - if users should see it coming, it was never `none`.
@@ -84,29 +93,38 @@ changeSummary: "Cut the refund window from 30 to 14 days; notify, existing conse
 
 ## Rules that will bite you
 
-- **Never amend a shipped revision.** Notice dedupe keys on the revision string and will not
-  re-send, so an edited revision reaches nobody.
+- **Never amend a shipped revision.** Your notice delivery is deduped on the revision string, so
+  an edited revision reaches nobody. policykit itself never dedupes or re-sends - `noticeQueue`
+  re-reports every owed revision on every call, and expiring the dedupe row is your side of it.
 - **One revision per day.** A second material change folds into today's directory only if it has
   not deployed yet; otherwise date it tomorrow.
-- **Never back-fill.** A new locale starts at the revision that introduces it. The loader
-  enforces contiguity: once introduced, a locale must exist for every later revision and may not
-  exist for earlier ones.
-- **A committed dated directory is published.** Work in progress goes in `drafts/`, which the
-  loader skips wholesale, or on a branch.
-- **`effectiveFrom >= revision` is the only date rule the package enforces.** The notice window
-  your own terms promise is yours to enforce - pin it with your own test. Shipping an adverse
+- **Never back-fill.** A new locale starts at the revision that introduces it. The loader enforces
+  contiguity forward: once a locale appears at revision R it must exist for every revision after R.
+  It may legally be absent before R - not backfilling the archive is your rule, not the loader's.
+- **A committed dated directory is published**, on the next deploy. Work in progress goes in
+  `drafts/` at the policy root, which the loader skips wholesale, or on a branch. Never rewrite git
+  history over policy content - the log is the acceptance-evidence chain.
+- **`effectiveFrom >= revision` is the only rule about the GAP between the two dates.** Both must
+  also be real calendar days, and an unquoted date that YAML rolled over is rejected. The notice
+  window your own terms promise is yours to enforce - pin it with your own test. Shipping an adverse
   change effective tomorrow breaches your contract silently.
 
 ## Superseding a revision that has not taken effect
 
-If you ship a revision that takes effect on or before a still-pending revision's
-`effectiveFrom`, the pending one is superseded: its text never binds. policykit stops announcing
-it (`pending()`, `pendingNotice` and `noticeQueue` exclude it) and never gates consent on it
-(`requiredConsentRevision` skips it).
+If you ship a revision that takes effect on or before a still-pending revision's `effectiveFrom`,
+the pending one is superseded: its text never binds, so policykit excludes it everywhere - see
+[how it works](/how-it-works) for why.
 
-So the surviving obligations move to the superseding revision. If the superseded revision was
+The surviving obligations move to the superseding revision. If the superseded revision was
 `reconsent` and its change survives in the new text, record `reconsent` on the **new** revision.
 Otherwise the re-prompt is silently dropped.
+
+## Validate before you commit
+
+Every rule above surfaces only when the loader reads the directory. Run your policy's
+`assertValid()` - or `assertValidAll()` across the set - and fix what throws until it is green; a
+full `next build` exercises the same loader. [Validation](/validation) covers both, and how to read
+the `PolicyValidationError` you get.
 
 ## Let an agent do it
 
@@ -114,8 +132,7 @@ The package ships a Claude Code skill that runs this whole workflow, and a rules
 the judgement calls above into every session. See [`/policykit`](/policykit) for both, including how
 to install them.
 
-## Next
+## Related
 
 - [`/policykit`](/policykit) - the shipped skill and rules file.
-- [Policy directories](/policy-directories) - the layout grammar and frontmatter contract.
 - [Validation](/validation) - proving a revision is valid before it deploys.

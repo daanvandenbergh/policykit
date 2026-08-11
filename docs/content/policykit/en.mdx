@@ -31,8 +31,9 @@ policy change", "fix a typo in a policy", or "when does the new DPA take effect?
 
 ## Install it
 
-Symlink the skill out of `node_modules` rather than copying it, so it tracks the version of
-policykit you actually have installed:
+You need the package installed first (see [getting started](/getting-started)) - the skill and the
+rules file ship inside it. Symlink the skill out of `node_modules` rather than copying it, so it
+tracks the version of policykit you actually have:
 
 ```bash
 mkdir -p .claude/skills
@@ -64,9 +65,12 @@ Eight steps, in order.
    nothing else.
 5. **Set `effectiveFrom`.** A real calendar day on or after the revision date.
 6. **Validate.** It runs your own test suite, which covers `assertValid()` / `assertValidAll()`,
-   and fixes what throws until it is green. See [validation](/validation).
+   and fixes what throws until it is green - a full `next build` exercises the same loader. Every
+   grammar or frontmatter breach throws a `PolicyValidationError` naming the file and field. See
+   [validation](/validation).
 7. **Show the diff.** The git diff is the review artifact: one new dated directory, or one
-   in-place erratum edit, and nothing else touched.
+   in-place erratum edit, and nothing else touched. It reminds you that committed means published
+   on the next deploy, and that policy history is never rewritten.
 
 ## The judgement calls it makes for you
 
@@ -86,17 +90,20 @@ layout grammar on [policy directories](/policy-directories).
 
 ## The rules file
 
-`rules/policies.md` is the other half of the contract. The skill is a workflow you invoke; the
-rules file is a set of standing rules your project `@`-imports into its `CLAUDE.md`, so every
-agent session obeys the policy lifecycle - including the sessions that edit a policy without ever
-reaching for the skill. Most of what it states is judgement no test can catch:
+`rules/policies.md` is the other half of the contract. The skill reads it first and treats it as
+binding - the steps are the workflow, the rules are the law. The `@`-import extends the same rules
+to every agent session, including the ones that edit a policy without ever reaching for the skill.
+Most of what it states is judgement no test can catch:
 
 - A material change is a new dated directory, never an edit to a published one.
-- A typo, format or link fix in a published file is an erratum: edit in place.
+- A typo, format or link fix in a published file is an erratum: edit in place. If the fix changed
+  what a clause means, it was never an erratum - revert and cut a revision.
 - One revision per day; never amend a shipped revision.
 - Every locale of a new revision is translated fresh; a new locale starts at the revision that
   introduces it and never back-fills history.
-- `notice` is the legal decision, recorded per revision, and the tier drives the UI.
+- `notice` is the legal decision, recorded per revision, and the tier drives the UI: a `none`
+  revision is never announced by the banner and never queued, so if users should see it coming, it
+  was never `none`. See [notices and consent](/notices-and-consent).
 - A revision that supersedes a still-pending one carries the surviving obligations itself.
 - `effectiveFrom` honours the notice window your own terms promise; the package only checks
   `>= revision`.
@@ -109,6 +116,7 @@ reaching for the skill. Most of what it states is judgement no test can catch:
 - **It never cuts a revision for an erratum.** A fake revision flips your consent gates and
   re-prompts every user over a comma.
 - **It never puts anything but `<locale>.mdx` files in a revision directory** - no images, no
-  notes. Work in progress goes to `drafts/`.
+  notes. Work in progress that must be committed goes in `drafts/` at the policy root, never
+  inside a revision directory and never as a dated directory.
 - **It does not decide your notice window.** That comes from your own published change-notice
   clause. Where the window is unclear, it asks you.

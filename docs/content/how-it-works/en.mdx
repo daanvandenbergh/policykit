@@ -25,7 +25,7 @@ No manifest, no registry, no database table. A revision exists because a directo
 date exists:
 
 ```text
-content/policies/terms-of-service/
+policies/terms-of-service/
     2026-01-10/
         en.mdx
     2026-06-01/
@@ -49,12 +49,18 @@ Every revision carries two dates, and mixing them up is the most common bug:
   starts to bind.
 
 The gap between them is the notice window you granted. Three accessors read it differently
-(`src/policy/policy.ts:162-213`):
+(`latest`, `effective` and `pending` in `src/policy/policy.ts`):
 
 - `latest()` - the newest revision by `revision`. Published, possibly not binding yet.
-- `effective(now)` - the newest revision whose `effectiveFrom` has arrived. What a consent gate
-  compares against and what an acceptance stamps.
-- `pending(now)` - the revision that binds next. What a "takes effect on {date}" banner announces.
+- `effective(now)` - the newest revision whose `effectiveFrom` has arrived. What the live page
+  renders, as `effective(now) ?? latest()`.
+- `pending(now)` - the revision that binds next, whatever its tier. What one policy's own page
+  labels as its next version.
+
+Neither of the last two is the consent gate. That is `requiredConsentRevision(policies, now)`, and
+it is what an acceptance stamps - see [notices and consent](/notices-and-consent). A site-wide
+"takes effect on {date}" banner reads `pendingNotice(policies, now)`, which skips `none` revisions
+where `pending()` would announce them.
 
 Take one policy with these three revisions:
 
@@ -71,18 +77,26 @@ On 15 June 2026, `latest()` returns `2026-06-20`, `effective(now)` still returns
 ## What each notice tier means
 
 `notice` is a recorded human judgement, not something the package computes
-(`src/policy/types.ts:14`). Unsure between two tiers? Record the stricter one.
+(the `PolicyNotice` type in `src/policy/types.ts`). Unsure between two tiers? Record the stricter
+one.
 
 - **`none`** - non-material, or forced by law or security. Nothing queued, nothing announced.
-- **`notify`** - users must be told, but existing consent stands. It appears in `noticeQueue()` and
-  in the banner; it never re-prompts anyone.
+- **`notify`** - users must be told, but existing consent stands. It appears in `noticeQueue()`
+  until its `effectiveFrom` ages past the notice horizon (`DEFAULT_NOTICE_HORIZON_DAYS`, 60 days),
+  and in the banner; it never re-prompts anyone.
 - **`reconsent`** - users must expressly accept again. Once effective, it moves the value
   `requiredConsentRevision()` returns, so every older stored acceptance fails the gate.
+
+One case the tiers do not cover: a policy's **baseline** - the first revision that ever binds - sets
+the consent gate whatever its tier, `none` included. That is what everyone accepted at signup. So
+adding a whole new policy re-gates consent even if its first revision owes nobody notice. After the
+baseline, only `reconsent` moves the gate.
 
 ## When a revision never binds
 
 A revision is **superseded** when any newer revision takes effect on or before its own
-`effectiveFrom` (`src/policy/policy.ts:32-43`). In the table above, `2026-06-01` is superseded:
+`effectiveFrom` (`supersededFlags` in `src/policy/policy.ts`). In the table above, `2026-06-01` is
+superseded:
 `2026-06-20` binds six days earlier, so the older text never binds for a single moment. This
 happens for real - an immediate law or security change shipped while an earlier notice window is
 still running.
@@ -92,17 +106,28 @@ Superseded revisions stay in the archive and `revisions()` still lists them, but
 announcing or gating on a text that will never bind is misinformation. If the superseded change
 survives in the new text, record its tier on the superseding revision instead.
 
-## Two conventions that surprise people
+## Why old revisions never leave
+
+The directory is the archive. Nothing is ever deleted or rewritten, so `revision(date)` and
+`content(date, locale)` serve any past pair for as long as its directory exists - that is how you
+show a user the exact text they accepted two years ago. `has(date, locale)` is the cheap existence
+check for a route that has to decide between rendering and a 404.
+
+A locale missing from an old revision is a legal state, not an error: a language introduced later
+never backfills the archive, so `content()` answers `undefined` and you decide what that means.
+
+## Why dates are UTC days and revisions are strings
 
 **`now` reduces to its UTC calendar day.** Every binding comparison runs
-`now.toISOString().slice(0, 10)` (`src/policy/policy.ts:16-18`), so a revision takes effect at UTC
-midnight of its `effectiveFrom` - identically for every user and every server, never at each
+`now.toISOString().slice(0, 10)` (`isoDay` in `src/policy/policy.ts`), so a revision takes effect
+at UTC midnight of its `effectiveFrom` - identically for every user and every server, never at each
 server's local midnight.
 
 **Revisions stay zero-padded ISO strings, end to end**, compared with lexicographic `>=` and never
 converted to `Date`. Zero-padded ISO sorts chronologically as text, so the comparison is exact and
-there is no timezone or parser to get wrong. Store an accepted revision the same way:
-`accepted >= requiredConsentRevision(POLICIES, new Date())`.
+there is no timezone or parser to get wrong. Compare a stored acceptance the same way, guarding the
+never-accepted case: `required === "" || (accepted ?? "") >= required`. The full recipe is on
+[notices and consent](/notices-and-consent).
 
 ## Why nothing is read until you ask
 
@@ -112,8 +137,9 @@ loudly at first use - in `next build`, or in `assertValid()` in a test - rather 
 at import time.
 
 The walk is never memoized either: every accessor re-walks the tree, so `next dev` sees an edit
-immediately and a validation error re-throws on every call. Only the per-file parse is cached,
-keyed by `(mtimeMs, size)` (`src/policy/load.ts:140-142`).
+immediately and a validation error re-throws on every call. Only the per-file parse is cached: the
+loader serves a memoized parse while the file's `(mtimeMs, size)` is unchanged, and writes the
+cache only after validation succeeds, so a failed parse caches nothing.
 
 See [validation](/validation) for what the walk enforces, and
 [notices and consent](/notices-and-consent) for wiring the tiers into an app.

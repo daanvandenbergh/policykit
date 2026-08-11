@@ -16,8 +16,9 @@ image: "/assets/docs/validation/hero.en.jpg"
 updated: "2026-08-11"
 ---
 
-A malformed policy directory throws a `PolicyValidationError` naming the offending file and field.
-This page covers when that throw happens, how to force it in CI, and what each rule is.
+A malformed policy directory throws a `PolicyValidationError` naming the offending entry, and the
+frontmatter field when the violation is one. This page covers when that throw happens, how to force
+it in CI, and the failures you will actually hit.
 
 ## When validation runs
 
@@ -38,6 +39,7 @@ first use, which in practice means two places:
 One test proves a deploy cannot fail on policy content:
 
 ```ts
+import { it } from "vitest";
 import { assertValidAll } from "@daanvandenbergh/policykit";
 import { POLICIES } from "@/content/policies";
 
@@ -60,9 +62,13 @@ render them without parsing text:
 | `file` | `string \| undefined` | when the violation is tied to one entry, relative to the policy dir (e.g. `"2026-07-28/en.mdx"`) |
 | `field` | `string \| undefined` | when the violation is a frontmatter field (e.g. `"effectiveFrom"`) |
 
-Every message is prefixed `Policy "<slug>": ` and names the entry and field it has. `file` is absent
-when the violation is not tied to one entry - a relative `dir`, a missing directory, a duplicate
-slug.
+Every message a policy directory produces is prefixed `Policy "<slug>": ` and names the entry and
+field it has. `file` is absent when the violation is not tied to one entry - a relative `dir`, a
+missing directory, a duplicate slug.
+
+One message is not prefixed: the cross-policy duplicate-slug error reads `Duplicate policy slug
+"<slug>" - every policy must have a unique slug.` and carries only `slug`. Do not match on the
+prefix to detect a policy error; use `instanceof`.
 
 ```ts
 import { assertValidAll, PolicyValidationError } from "@daanvandenbergh/policykit";
@@ -77,8 +83,11 @@ try {
 }
 ```
 
-`PolicyValidationError` is exported from the package root and its module is fs-free, so a React
-component can import it for an `instanceof` check without pulling the Node loader into its graph.
+`PolicyValidationError` is exported from the package root, so any server-side code can use it for an
+`instanceof` check. Do that in a server component, route handler, or test - not in a `"use client"`
+tree. The root entry re-exports the `Policy` class, whose graph reaches the loader and `node:fs`, so
+importing anything from it in a client bundle fails. The root entry's promise is that it pulls in no
+react and no next, not that it is free of Node built-ins.
 
 ## Errors are never cached
 
@@ -97,12 +106,21 @@ and the same timestamp** is not detected. Touch the file or restart the process 
 
 | Condition | Fix |
 | --- | --- |
-| `dir` is a relative path (throws at construction) | Pass an absolute path - `path.join(process.cwd(), "content/legal/terms")`. |
+| `dir` is a relative path (throws at construction) | Pass an absolute path - `path.join(process.cwd(), "policies", "terms-of-service")`. |
 | `defaultLocale` is not in `locales` (throws at construction) | Add it to `locales`, or drop the `defaultLocale` override. |
+| `dir` does not exist, or is not a directory | Point it at the policy directory. |
+| The policy directory holds no revisions | A policy needs at least one `YYYY-MM-DD/` directory. |
 | A revision directory name is not a real, zero-padded calendar day | Rename it - `2026-8-5` and `2026-02-30` both fail. |
-| A stray file or directory sits at the policy root | Delete it, or move it into `drafts/` - the only entry the walk skips. |
+| A stray file or directory sits at the policy root | Delete it, or move it into `drafts/` - the only entry the walk skips, and only when it is a directory. |
+| A file inside a revision directory is not `<locale>.mdx` | Remove it or rename it. Revision directories hold locale files and nothing else. |
+| A locale file's locale is not in the configured `locales` | Add the locale to the `Policy` config, or delete the file. |
 | A revision has no default-locale file | Add `<revision>/<defaultLocale>.mdx`; it carries the revision's frontmatter. |
+| `effectiveFrom` is missing, or not a real calendar day | Quote it and check the day exists. |
+| `effectiveFrom` is earlier than the revision directory name | Raise it, or rename the directory - a revision cannot take effect before it exists. |
+| `notice` is missing or outside `none` / `notify` / `reconsent` | Record the tier the change actually owes. |
+| `changeSummary` is missing or blank | Write one sentence saying what changed and why the tier is right. |
 | A frontmatter key is not in the allowed set | Remove it. Default-locale files allow `effectiveFrom`, `notice`, `changeSummary`, `title`; other locales allow `title` only. |
+| The frontmatter is not a YAML mapping, or is invalid YAML | Restore the `key: value` shape; a stray colon in an unquoted string is the usual cause. |
 | An MDX body is empty | Write the text under the frontmatter - the body IS the legal document. |
 | A locale exists at revision R but is missing from a later revision | Add the missing translation. Once introduced, a locale must exist for every revision after it. |
 

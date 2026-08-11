@@ -24,7 +24,8 @@ together, read [how it works](/how-it-works).
 | Import | Contains |
 | --- | --- |
 | `@daanvandenbergh/policykit` | `Policy`, `noticeQueue`, `pendingNotice`, `requiredConsentRevision`, `assertValidAll`, `DEFAULT_NOTICE_HORIZON_DAYS`, every public type, `PolicyValidationError` |
-| `@daanvandenbergh/policykit/react` | `PolicyDocument`, `PolicyBanner`, and their prop types |
+| `@daanvandenbergh/policykit/react` | `PolicyDocument`, `PolicyDocumentProps`, `PolicyBanner`, `PolicyBannerProps` |
+| `@daanvandenbergh/policykit/package.json` | The package manifest, for version lookups and tooling |
 
 The root entry's module graph imports only `node:fs`, `node:path`, and `gray-matter` - never
 `react`, `react-dom`, `next`, `next-mdx-remote`, or `server-only` - so a server-side package under
@@ -106,17 +107,19 @@ pendingNotice(
 ```
 
 The one published, not-yet-effective, notice-owing revision taking effect soonest across
-`policies`; `undefined` when there is none. On an `effectiveFrom` tie the first policy in the given
-order wins. Throws `PolicyValidationError`.
+`policies`, skipping revisions that are superseded and so will never bind; `undefined` when there is
+none. On an `effectiveFrom` tie the first policy in the given order wins. Throws
+`PolicyValidationError`.
 
 ```ts
 requiredConsentRevision(policies: readonly Policy[], now: Date): string
 ```
 
 The revision string a user must have accepted to count as consented across `policies`: the maximum
-effective revision that is either a policy's baseline or carries `notice: "reconsent"`. Returns
-`""` when nothing is effective yet. Compare a stored acceptance with lexicographic `>=`. Throws
-`PolicyValidationError`.
+effective, still-binding revision that is either the policy's **baseline** - its first revision that
+ever binds, i.e. the first non-superseded one - or carries `notice: "reconsent"`. Superseded
+revisions never move the gate. Returns `""` when nothing is effective yet. Compare a stored
+acceptance with lexicographic `>=`. Throws `PolicyValidationError`.
 
 ```ts
 assertValidAll(policies: readonly Policy[]): void
@@ -130,6 +133,12 @@ Runs every policy's `assertValid()` and rejects duplicate slugs across the set. 
 ```ts
 type PolicyNotice = "none" | "notify" | "reconsent";
 ```
+
+| Tier | Meaning |
+| --- | --- |
+| `"none"` | Non-material, or a change forced by law or security that owes no notice. |
+| `"notify"` | Users must be told, but existing consent stands; it never re-prompts anyone. |
+| `"reconsent"` | Users must expressly accept again before the revision binds them. |
 
 ```ts
 interface PolicyConfig {
@@ -178,12 +187,26 @@ title with no fallback - so a page never shows an English heading above Dutch te
 | `TypeError` | `horizonDays` passed to `noticeQueue` or `Policy.owedNotices` is not a finite, non-negative number. |
 | `Error` | `PolicyDocument` resolved a `(revision, locale)` pair with no content. A plain `Error`, not a validation error: the corpus is valid, the ask was wrong. |
 
-`PolicyValidationError` re-throws on every call - the walk is never cached - so a bad file fails
-`next build` and `assertValid()` repeatably.
+```ts
+class PolicyValidationError extends Error {
+    readonly slug: string;
+    readonly file?: string;
+    readonly field?: string;
+    constructor(message: string, details: PolicyValidationErrorDetails);
+}
+```
+
+`name` is always `"PolicyValidationError"` - read it when an `instanceof` check cannot cross a
+bundle boundary. The error re-throws on every call, because the walk is never cached, so a bad file
+fails `next build` and `assertValid()` repeatably.
 
 ## React (`@daanvandenbergh/policykit/react`)
 
 ### PolicyDocument
+
+```ts
+function PolicyDocument(props: PolicyDocumentProps): Promise<JSX.Element>
+```
 
 Async server component rendering one revision's MDX body through `next-mdx-remote`, with
 `remark-gfm` always on. It renders the body only - no title, no styling. It reads the filesystem,
@@ -193,14 +216,19 @@ so render it on the server, never inside a `"use client"` tree.
 | --- | --- | --- | --- |
 | `policy` | `Policy` | yes | - |
 | `locale` | `string` | yes | - |
-| `revision` | `string` | no | `policy.effective(new Date()) ?? policy.latest()` |
+| `revision` | `string` | no | `(policy.effective(new Date()) ?? policy.latest()).revision` |
 | `components` | `MDXRemoteProps["components"]` | no | `undefined` |
 
-Throws a plain `Error` when the resolved pair has no content. Guard archive routes with
-`policy.revision()` or `policy.has()` and 404 first - see
-[rendering policies](/rendering-policies).
+Those four props are the exported `PolicyDocumentProps` interface.
+
+Throws a plain `Error` when the resolved pair has no content. Guard routes with `policy.has()` and
+404 first - see [rendering policies](/rendering-policies).
 
 ### PolicyBanner
+
+```ts
+function PolicyBanner(props: PolicyBannerProps): ReactNode
+```
 
 Headless server component: it resolves `pendingNotice` and calls `children` with the result, or
 renders `null` when nothing pending owes notice. It reads the filesystem, so it is server-only too.
@@ -211,7 +239,17 @@ renders `null` when nothing pending owes notice. It reads the filesystem, so it 
 | `now` | `Date` | no | `new Date()` |
 | `children` | `(announcement: { policy: Policy; revision: PolicyRevision }) => ReactNode` | yes | - |
 
-Throws `PolicyValidationError` when any policy's directory is invalid.
+Those three props are the exported `PolicyBannerProps` interface. Throws `PolicyValidationError`
+when any policy's directory is invalid.
+
+## Dependencies
+
+Installed unconditionally with the package:
+
+| Package | Range | Used by |
+| --- | --- | --- |
+| `gray-matter` | `^4.0.3` | The root entry, to parse frontmatter |
+| `remark-gfm` | `^4.0.1` | The `/react` subpath, so pipe tables render |
 
 ## Peer dependencies
 
@@ -222,5 +260,5 @@ Throws `PolicyValidationError` when any policy's directory is invalid.
 | `react` | `>=18` |
 | `react-dom` | `>=18` |
 
-All four are optional. A server-only consumer using the root entry installs nothing extra; only the
-`/react` subpath needs them.
+All four are optional, and none is required by the root entry - only the `/react` subpath needs
+them.

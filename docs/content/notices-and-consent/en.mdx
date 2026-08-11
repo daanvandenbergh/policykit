@@ -27,28 +27,39 @@ answers each question; the delivery and storage stay yours.
 ## Announce the pending revision
 
 `PolicyBanner` is a headless server component. It takes `policies` (required), an optional `now`
-(defaults to `new Date()`), and a render-prop `children` called only when there is something to
-announce - so your callback never handles an empty case. It renders `null` otherwise.
+(defaults to `new Date()`, and reduced to its UTC day), and a render-prop `children` called only
+when there is something to announce - so your callback never handles an empty case. It renders
+`null` otherwise. It reads the filesystem, so it must never appear inside a `"use client"` tree,
+and a broken policy corpus throws `PolicyValidationError` rather than quietly announcing nothing.
 
 ```tsx
 // app/[locale]/layout.tsx
+import type { ReactNode } from "react";
 import { PolicyBanner } from "@daanvandenbergh/policykit/react";
 import { POLICIES } from "@/content/policies";
+import { MyLink } from "@/components/MyLink";
 
-<PolicyBanner policies={POLICIES}>
-    {({ policy, revision }) => (
-        <aside className="banner">
-            {t(`legal.${policy.slug}.takesEffect`, { date: format(revision.effectiveFrom) })}{" "}
-            <MyLink href={`/legal/${policy.slug}`}>Read it</MyLink>
-        </aside>
-    )}
-</PolicyBanner>
+export default function LocaleLayout({ children }: { children: ReactNode }) {
+    return (
+        <>
+            <PolicyBanner policies={POLICIES}>
+                {({ policy, revision }) => (
+                    <aside className="banner">
+                        A new version of {policy.slug} takes effect on {revision.effectiveFrom}.{" "}
+                        <MyLink href={`/legal/${policy.slug}`}>Read it</MyLink>
+                    </aside>
+                )}
+            </PolicyBanner>
+            {children}
+        </>
+    );
+}
 ```
 
 It announces the revision taking effect soonest across the policies you pass. On an
 `effectiveFrom` tie, the first policy in argument order wins. Outside React - an in-app banner
-API, a mail digest header - call the same core function directly; the component is a five-line
-wrapper around it:
+API, a mail digest header - call the same core function directly; the component is a thin wrapper
+around it:
 
 ```ts
 import { pendingNotice } from "@daanvandenbergh/policykit";
@@ -56,12 +67,16 @@ import { pendingNotice } from "@daanvandenbergh/policykit";
 const announcement = pendingNotice(POLICIES, new Date()); // { policy, revision } | undefined
 ```
 
-Do not hand-roll this as `policies.map((p) => p.pending(now)).filter(...)`. `pending()` answers
-"what takes effect next for this document" regardless of tier, so it returns a `notice: "none"`
-revision - announcing which contradicts the recorded decision that no notice is owed - and that
-revision then masks any later notice-owing revision behind it. `pendingNotice` skips `"none"`
-revisions **and keeps scanning** the policy, so a pending `"none"` can never swallow a `notify` or
-`reconsent` sitting after it.
+For a **site-wide** banner, do not hand-roll this as
+`policies.map((p) => p.pending(now)).filter(...)`. `pending()` answers "what takes effect next for
+this document" regardless of tier, so it returns a `notice: "none"` revision - announcing which
+contradicts the recorded decision that no notice is owed - and that revision then masks any later
+notice-owing revision behind it. `pendingNotice` skips `"none"` revisions **and keeps scanning** the
+policy, so a pending `"none"` can never swallow a `notify` or `reconsent` sitting after it.
+
+On a single policy's **own page** the opposite holds: `policy.pending(now)` is the right call,
+because there you are labelling that document's next version whatever its tier, not deciding what
+notice is owed. [Rendering policies](/rendering-policies) shows that pattern.
 
 ## Deliver the notices
 
@@ -93,6 +108,7 @@ user forever on a schedule nobody watches. That is why the constant is exported 
 against your own TTL:
 
 ```ts
+import { expect, it } from "vitest";
 import { DEFAULT_NOTICE_HORIZON_DAYS } from "@daanvandenbergh/policykit";
 
 it("the notice horizon stays inside the dedupe TTL", () => {
@@ -117,7 +133,15 @@ const consented = required === "" || (user.acceptedPolicyRevision ?? "") >= requ
 ```
 
 A `notify` revision never moves this value - notify means existing consent stands. A `reconsent`
-revision moves it only from its `effectiveFrom` day, not from the day it is published.
+revision moves it only from its `effectiveFrom` day, not from the day it is published - and that
+boundary is UTC midnight, identically for every user and every server, like every other date
+comparison in the package ([how it works](/how-it-works) covers the convention).
+
+The gate is **one joint threshold** across the policies you pass. A reconsent whose revision string
+is older than a sibling policy's newer baseline or reconsent is subsumed by it, so users re-prompt
+once against the joint max rather than once per policy. If you need strictly per-policy reconsent
+tracking, call this per policy - `requiredConsentRevision([termsPolicy], now)` - and store one stamp
+each.
 
 On acceptance, stamp the function's own return value, evaluated at acceptance time:
 
@@ -130,15 +154,13 @@ the max effective revision across policies can run ahead of a sibling's pending 
 silently satisfying a gate that was never met. Revisions are zero-padded ISO strings, so string
 order is date order - compare them with `>=` and never convert them to `Date`.
 
-## Superseded revisions do neither
+## Superseded revisions are excluded everywhere
 
-A revision superseded before it ever bound - a newer revision took effect on or before its
-`effectiveFrom` - is never announced, never queued, and never moves the consent gate. Its text
-never binds, so notice about it is misinformation and consent to it is meaningless. If the
-superseding revision still owes that reconsent, record `reconsent` on the superseding revision
-itself.
+A revision superseded before it ever bound is never announced, never queued, and never moves the
+consent gate - see [how it works](/how-it-works) for why. What that costs you as an author: if the
+superseding revision still owes the superseded one's reconsent, record `reconsent` on the
+superseding revision itself, or the re-prompt is silently dropped.
 
-## Next
+## Related
 
-[Validation](/validation) covers proving in CI that your policy content cannot break the next
-deploy.
+- [API reference](/api-reference) - every signature, default, and throw condition on this page.
