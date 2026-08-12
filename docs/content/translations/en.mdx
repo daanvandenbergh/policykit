@@ -87,7 +87,7 @@ zh-Hans.mdx   invalid - script subtags are not expressible
 ```
 
 A file that does not match is reported as an unexpected entry in the revision directory, and the
-error names it. [Policy directories](/policy-directories) carries the same grammar for the whole
+error names it. [Policy directories](/policy-directories/) carries the same grammar for the whole
 layout.
 
 ## Introduce a locale at one revision, then keep it
@@ -122,7 +122,7 @@ not dead content.
 ```
 
 Either the app is missing a locale it should serve, or somebody committed a translation nobody can
-reach. Both are worth a build failure. See [validation](/validation) for where that failure lands.
+reach. Both are worth a build failure. See [validation](/validation/) for where that failure lands.
 
 ## Render the right title
 
@@ -149,4 +149,4 @@ termsPolicy.revision("2026-08-01")?.locales;    // ["en", "nl"]
 ```
 
 `Policy.has(revision, locale)` is the cheap yes/no when you only need to decide between rendering
-and a 404. See [rendering policies](/rendering-policies) for the route shapes.
+and a 404. See [rendering policies](/rendering-policies/) for the route shapes.

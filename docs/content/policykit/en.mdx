@@ -19,7 +19,7 @@ updated: "2026-08-11"
 The package ships a Claude Code skill that authors a policy revision end to end: it decides
 material-change-vs-erratum, creates the dated revision directory with one MDX file per locale,
 sets the notice tier and the effective date, and validates. It is the [writing a
-revision](/writing-a-revision) checklist, executed.
+revision](/writing-a-revision/) checklist, executed.
 
 ```text
 /policykit [policy slug or description of the change - omit to be asked]
@@ -31,7 +31,7 @@ policy change", "fix a typo in a policy", or "when does the new DPA take effect?
 
 ## Install it
 
-You need the package installed first (see [getting started](/getting-started)) - the skill and the
+You need the package installed first (see [getting started](/getting-started/)) - the skill and the
 rules file ship inside it. Symlink the skill out of `node_modules` rather than copying it, so it
 tracks the version of policykit you actually have:
 
@@ -67,7 +67,7 @@ Eight steps, in order.
 6. **Validate.** It runs your own test suite, which covers `assertValid()` / `assertValidAll()`,
    and fixes what throws until it is green - a full `next build` exercises the same loader. Every
    grammar or frontmatter breach throws a `PolicyValidationError` naming the file and field. See
-   [validation](/validation).
+   [validation](/validation/).
 7. **Show the diff.** The git diff is the review artifact: one new dated directory, or one
    in-place erratum edit, and nothing else touched. It reminds you that committed means published
    on the next deploy, and that policy history is never rewritten.
@@ -85,8 +85,8 @@ Eight steps, in order.
 - **Supersession.** If the new revision supersedes one still inside its notice window, it checks
   that the surviving obligations, and the stricter tier, move to the new revision.
 
-Each of these is spelled out in full on [writing a revision](/writing-a-revision), with the
-layout grammar on [policy directories](/policy-directories).
+Each of these is spelled out in full on [writing a revision](/writing-a-revision/), with the
+layout grammar on [policy directories](/policy-directories/).
 
 ## The rules file
 
@@ -103,7 +103,7 @@ Most of what it states is judgement no test can catch:
   introduces it and never back-fills history.
 - `notice` is the legal decision, recorded per revision, and the tier drives the UI: a `none`
   revision is never announced by the banner and never queued, so if users should see it coming, it
-  was never `none`. See [notices and consent](/notices-and-consent).
+  was never `none`. See [notices and consent](/notices-and-consent/).
 - A revision that supersedes a still-pending one carries the surviving obligations itself.
 - `effectiveFrom` honours the notice window your own terms promise; the package only checks
   `>= revision`.

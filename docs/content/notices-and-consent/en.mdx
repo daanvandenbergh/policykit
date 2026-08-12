@@ -21,8 +21,8 @@ notice delivered to each user, and - for a `reconsent` revision - a fresh consen
 answers each question; the delivery and storage stay yours.
 
 **Prerequisites:** a `POLICIES` array of configured `Policy` instances (see
-[getting started](/getting-started)) and revisions carrying a `notice` tier (see
-[writing a revision](/writing-a-revision)).
+[getting started](/getting-started/)) and revisions carrying a `notice` tier (see
+[writing a revision](/writing-a-revision/)).
 
 ## Announce the pending revision
 
@@ -76,7 +76,7 @@ policy, so a pending `"none"` can never swallow a `notify` or `reconsent` sittin
 
 On a single policy's **own page** the opposite holds: `policy.pending(now)` is the right call,
 because there you are labelling that document's next version whatever its tier, not deciding what
-notice is owed. [Rendering policies](/rendering-policies) shows that pattern.
+notice is owed. [Rendering policies](/rendering-policies/) shows that pattern.
 
 ## Deliver the notices
 
@@ -135,7 +135,7 @@ const consented = required === "" || (user.acceptedPolicyRevision ?? "") >= requ
 A `notify` revision never moves this value - notify means existing consent stands. A `reconsent`
 revision moves it only from its `effectiveFrom` day, not from the day it is published - and that
 boundary is UTC midnight, identically for every user and every server, like every other date
-comparison in the package ([how it works](/how-it-works) covers the convention).
+comparison in the package ([how it works](/how-it-works/) covers the convention).
 
 The gate is **one joint threshold** across the policies you pass. A reconsent whose revision string
 is older than a sibling policy's newer baseline or reconsent is subsumed by it, so users re-prompt
@@ -157,10 +157,10 @@ order is date order - compare them with `>=` and never convert them to `Date`.
 ## Superseded revisions are excluded everywhere
 
 A revision superseded before it ever bound is never announced, never queued, and never moves the
-consent gate - see [how it works](/how-it-works) for why. What that costs you as an author: if the
+consent gate - see [how it works](/how-it-works/) for why. What that costs you as an author: if the
 superseding revision still owes the superseded one's reconsent, record `reconsent` on the
 superseding revision itself, or the re-prompt is silently dropped.
 
 ## Related
 
-- [API reference](/api-reference) - every signature, default, and throw condition on this page.
+- [API reference](/api-reference/) - every signature, default, and throw condition on this page.

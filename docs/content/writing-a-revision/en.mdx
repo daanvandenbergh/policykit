@@ -25,7 +25,7 @@ If you have to ask, it is material. A typo, a broken link or a formatting fix is
 edit the published file in place and stop. Git is the errata trail. If the fix turned out to change
 what a clause means, it was never an erratum - revert it and cut a revision.
 
-**Prerequisites:** a configured `Policy` (see [getting started](/getting-started)). Its `dir`,
+**Prerequisites:** a configured `Policy` (see [getting started](/getting-started/)). Its `dir`,
 `locales`, and `defaultLocale` decide which files this revision needs.
 
 ## Copy the newest revision to a new dated directory
@@ -40,7 +40,7 @@ cp -r 2026-07-07 2026-08-11
 
 Copy every locale file, then rewrite each one. Translations are made fresh from the new source
 text - a copied-forward translation validates green and lies. See
-[translations](/translations) for which locales a revision owes.
+[translations](/translations/) for which locales a revision owes.
 
 ## Edit the text and set the frontmatter
 
@@ -57,7 +57,7 @@ title: "Terms of Service"
 ```
 
 Quote `effectiveFrom`. An unquoted date works, but YAML rolls an impossible one over to a real
-different day - [policy directories](/policy-directories) has the traps.
+different day - [policy directories](/policy-directories/) has the traps.
 
 Other locale files may carry an optional `title:` and nothing else. Every file needs a non-empty
 MDX body.
@@ -113,7 +113,7 @@ changeSummary: "Cut the refund window from 30 to 14 days; notify, existing conse
 
 If you ship a revision that takes effect on or before a still-pending revision's `effectiveFrom`,
 the pending one is superseded: its text never binds, so policykit excludes it everywhere - see
-[how it works](/how-it-works) for why.
+[how it works](/how-it-works/) for why.
 
 The surviving obligations move to the superseding revision. If the superseded revision was
 `reconsent` and its change survives in the new text, record `reconsent` on the **new** revision.
@@ -123,16 +123,16 @@ Otherwise the re-prompt is silently dropped.
 
 Every rule above surfaces only when the loader reads the directory. Run your policy's
 `assertValid()` - or `assertValidAll()` across the set - and fix what throws until it is green; a
-full `next build` exercises the same loader. [Validation](/validation) covers both, and how to read
+full `next build` exercises the same loader. [Validation](/validation/) covers both, and how to read
 the `PolicyValidationError` you get.
 
 ## Let an agent do it
 
 The package ships a Claude Code skill that runs this whole workflow, and a rules file that carries
-the judgement calls above into every session. See [`/policykit`](/policykit) for both, including how
+the judgement calls above into every session. See [`/policykit`](/policykit/) for both, including how
 to install them.
 
 ## Related
 
-- [`/policykit`](/policykit) - the shipped skill and rules file.
-- [Validation](/validation) - proving a revision is valid before it deploys.
+- [`/policykit`](/policykit/) - the shipped skill and rules file.
+- [Validation](/validation/) - proving a revision is valid before it deploys.

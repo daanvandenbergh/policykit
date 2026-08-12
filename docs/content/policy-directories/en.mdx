@@ -82,8 +82,8 @@ title: "Terms of Service"
 ---
 ```
 
-See [writing a revision](/writing-a-revision) for what each `notice` tier commits you to, and
-[translations](/translations) for the locale contiguity rule.
+See [writing a revision](/writing-a-revision/) for what each `notice` tier commits you to, and
+[translations](/translations/) for the locale contiguity rule.
 
 ## Writing effectiveFrom safely
 
@@ -128,11 +128,11 @@ entry, and `field` when it is a frontmatter field.
 | `revision <date> is missing its default-locale file "<date>/<locale>.mdx"` | Every revision needs the default locale - it carries the frontmatter. |
 | `frontmatter field "effectiveFrom" is required and must be a real YYYY-MM-DD calendar date.` | Quote it and check the day exists. |
 | `has effectiveFrom X, which is before its revision date Y - a revision cannot take effect before it exists.` | Raise `effectiveFrom`, or rename the revision directory. |
-| `frontmatter field "notice" is required and must be one of: none, notify, reconsent.` | Set one of the three tiers - see [writing a revision](/writing-a-revision). |
+| `frontmatter field "notice" is required and must be one of: none, notify, reconsent.` | Set one of the three tiers - see [writing a revision](/writing-a-revision/). |
 | `frontmatter field "changeSummary" is required and must be a non-empty string.` | Write one sentence saying what changed and why the tier is right. |
 | `frontmatter field "<key>" is not allowed here - allowed keys: effectiveFrom, notice, changeSummary, title.` | Remove the key. Non-default locale files allow `title` only. |
 | `frontmatter must be a YAML mapping of key: value pairs.` | The block resolved to a scalar or a list - restore the `key: value` shape. |
 | `has invalid frontmatter YAML: ...` | Fix the YAML syntax; a stray colon in an unquoted string is the usual cause. |
 | `has an empty MDX body - the body IS the legal text` | Write the policy text under the frontmatter. |
 
-Catch all of these before deploy with [validation](/validation).
+Catch all of these before deploy with [validation](/validation/).

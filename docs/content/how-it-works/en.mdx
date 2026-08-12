@@ -58,7 +58,7 @@ The gap between them is the notice window you granted. Three accessors read it d
   labels as its next version.
 
 Neither of the last two is the consent gate. That is `requiredConsentRevision(policies, now)`, and
-it is what an acceptance stamps - see [notices and consent](/notices-and-consent). A site-wide
+it is what an acceptance stamps - see [notices and consent](/notices-and-consent/). A site-wide
 "takes effect on {date}" banner reads `pendingNotice(policies, now)`, which skips `none` revisions
 where `pending()` would announce them.
 
@@ -127,7 +127,7 @@ server's local midnight.
 converted to `Date`. Zero-padded ISO sorts chronologically as text, so the comparison is exact and
 there is no timezone or parser to get wrong. Compare a stored acceptance the same way, guarding the
 never-accepted case: `required === "" || (accepted ?? "") >= required`. The full recipe is on
-[notices and consent](/notices-and-consent).
+[notices and consent](/notices-and-consent/).
 
 ## Why nothing is read until you ask
 
@@ -141,5 +141,5 @@ immediately and a validation error re-throws on every call. Only the per-file pa
 loader serves a memoized parse while the file's `(mtimeMs, size)` is unchanged, and writes the
 cache only after validation succeeds, so a failed parse caches nothing.
 
-See [validation](/validation) for what the walk enforces, and
-[notices and consent](/notices-and-consent) for wiring the tiers into an app.
+See [validation](/validation/) for what the walk enforces, and
+[notices and consent](/notices-and-consent/) for wiring the tiers into an app.
