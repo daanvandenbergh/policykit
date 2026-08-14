@@ -328,6 +328,11 @@ you (shipped as `rules/policies.md`, see below):
   `effectiveFrom >= revision`; the window your own terms promise (and its legal exceptions - a
   change forced by law or security may be adverse AND immediate) is arithmetic you own. Pin your
   promise with your own test.
+- **Promise the legal minimum, never more.** Every sentence is an obligation you must keep and can
+  only walk back with a new revision, a notice and possibly fresh consent - so write the statutory
+  bound, not a better one, and volunteer no guarantee, no unbounded absolute ("never",
+  "immediately") and no borrowed generous clause. Removing an over-promise you already published is
+  itself a material change.
 - **Fresh translations per revision** - a copied-forward old translation validates green and lies.
 - **Never rewrite git history over policy content** - the log is part of the acceptance-evidence
   chain.

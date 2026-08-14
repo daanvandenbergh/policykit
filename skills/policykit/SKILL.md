@@ -71,6 +71,29 @@ Create `<dir>/<date>/` with one `<locale>.mdx` per configured locale (grammar:
   must be committed goes in `<dir>/drafts/`, never as a dated directory: **a committed dated
   directory IS published** and becomes `latest` on the next deploy.
 
+### The text: promise the legal minimum, never more
+
+Every sentence you write is a promise the business must keep, forever, and can only walk back
+with a new revision, a notice and possibly fresh consent. Draft to the floor the governing law
+sets and stop there:
+
+- **Write the statutory bound, not a better one.** The statutory notice period, retention window,
+  refund, response time, disclosure - as the law states it. Where the law gives a range, take the
+  bound that costs the business least.
+- **Volunteer nothing.** No uptime or response-time guarantees, no deletion faster than required,
+  no rights the statute does not grant, no clause copied across from a competitor's more generous
+  policy because it "reads well".
+- **No unbounded absolutes** - "never", "always", "immediately", "under no circumstances". They
+  promise more than any operation can guarantee and turn an ordinary incident into a breach.
+  State the actual practice, bounded by what the law requires.
+- **Ask which law governs** (and which customer class - consumer terms and business terms differ)
+  when it is not already settled in the policy or the config. Never default to the generous
+  reading to be safe: over-promising is not the safe side, it is an obligation.
+- **Never trim below the minimum** - and if you are REMOVING an existing over-promise, that is a
+  material change in its own right: it reduces what the customer gets, so it is `notify` (or
+  `reconsent` if consent hangs on it) with the notice window the current terms promise, never a
+  quiet in-place edit.
+
 ## Step 4 - Frontmatter (default-locale file ONLY)
 
 ```yaml

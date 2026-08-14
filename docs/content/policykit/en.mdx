@@ -13,7 +13,7 @@ keywords:
     - agent workflow
     - policy revision
 image: "/assets/docs/policykit/hero.en.jpg"
-updated: "2026-08-11"
+updated: "2026-08-14"
 ---
 
 The package ships a Claude Code skill that authors a policy revision end to end: it decides
@@ -58,8 +58,9 @@ Eight steps, in order.
 1. **Material change or erratum?** An erratum is edited in place and the run stops after
    validation. A material change continues as a new revision.
 2. **Pick the revision date.** Today, zero-padded `YYYY-MM-DD`.
-3. **Create the revision directory.** `<dir>/<date>/` with one `<locale>.mdx` per configured
-   locale, matching `^[a-z]{2}(?:-[A-Z]{2})?\.mdx$`, each with a non-empty body.
+3. **Create the revision directory and write the text.** `<dir>/<date>/` with one `<locale>.mdx`
+   per configured locale, matching `^[a-z]{2}(?:-[A-Z]{2})?\.mdx$`, each with a non-empty body -
+   drafted to the legal minimum, never above it.
 4. **Write the frontmatter** on the default locale's file only: `effectiveFrom`, `notice` and
    `changeSummary`, plus an optional `title`. Other locale files get an optional `title` and
    nothing else.
@@ -78,6 +79,10 @@ Eight steps, in order.
   obligation, a data practice. If it has to ask, it is material.
 - **The notice tier.** `none`, `notify` or `reconsent`, chosen from what the change does to the
   user, and recorded in frontmatter as the legal decision. Unsure means the stricter tier.
+- **How much to promise.** It drafts to the legal floor - the statutory period, right or
+  disclosure, and no better one - so you are not left keeping a promise the law never asked for.
+  Where the governing law or the customer class is unsettled, it asks rather than defaulting to
+  the generous reading.
 - **One revision per day.** If today's directory exists but has not deployed, the change folds
   into it. If it has deployed, the new revision is dated tomorrow.
 - **Fresh translations.** Every locale is translated from the new source text, never copied
@@ -99,6 +104,9 @@ Most of what it states is judgement no test can catch:
 - A typo, format or link fix in a published file is an erratum: edit in place. If the fix changed
   what a clause means, it was never an erratum - revert and cut a revision.
 - One revision per day; never amend a shipped revision.
+- Promise the legal minimum and never more: the statutory bound, not a better one; no volunteered
+  guarantees; no unbounded absolutes like "never" or "immediately". Removing an over-promise you
+  already published is itself a material change, not a quiet in-place edit.
 - Every locale of a new revision is translated fresh; a new locale starts at the revision that
   introduces it and never back-fills history.
 - `notice` is the legal decision, recorded per revision, and the tier drives the UI: a `none`
@@ -120,3 +128,6 @@ Most of what it states is judgement no test can catch:
   inside a revision directory and never as a dated directory.
 - **It does not decide your notice window.** That comes from your own published change-notice
   clause. Where the window is unclear, it asks you.
+- **It does not write you a more generous policy than the law requires.** Anything above the
+  statutory floor is an obligation you then have to meet, so it stays at the floor unless you
+  tell it otherwise.
