@@ -23,7 +23,7 @@ The complete public surface of `@daanvandenbergh/policykit`. For how the pieces 
 
 | Import | Contains |
 | --- | --- |
-| `@daanvandenbergh/policykit` | `Policy`, `noticeQueue`, `pendingNotice`, `requiredConsentRevision`, `assertValidAll`, `DEFAULT_NOTICE_HORIZON_DAYS`, every public type, `PolicyValidationError` |
+| `@daanvandenbergh/policykit` | `Policy`, `noticeQueue`, `supersededSince`, `pendingNotice`, `requiredConsentRevision`, `assertValidAll`, `DEFAULT_NOTICE_HORIZON_DAYS`, every public type, `PolicyValidationError` |
 | `@daanvandenbergh/policykit/react` | `PolicyDocument`, `PolicyDocumentProps`, `PolicyBanner`, `PolicyBannerProps` |
 | `@daanvandenbergh/policykit/package.json` | The package manifest, for version lookups and tooling |
 
@@ -98,6 +98,20 @@ Every revision across `policies` that owes notice (`notice !== "none"`), will bi
 and whose `effectiveFrom` is within `horizonDays` before `now` or still in the future. Ordered by
 policy, then revision ascending. Throws `PolicyValidationError`, and `TypeError` on a non-finite or
 negative `horizonDays`.
+
+```ts
+supersededSince(
+    policies: readonly Policy[],
+    options: { now: Date; horizonDays?: number },
+): readonly { policy: Policy; revision: PolicyRevision }[]
+```
+
+The exact complement of `noticeQueue` within the same window: the notice-owing, in-horizon
+revisions that a NEWER revision superseded, so their text will never bind. `noticeQueue` drops
+them silently, which is right for a queue - but supersession usually happens after the
+announcement went out, so this names the announcements a consumer can still withdraw. Bounded by
+the same horizon, so it can never name a revision the queue would not have carried. Same order and
+the same throws as `noticeQueue`.
 
 ```ts
 pendingNotice(
@@ -184,7 +198,7 @@ title with no fallback - so a page never shows an English heading above Dutch te
 | Thrown | When |
 | --- | --- |
 | `PolicyValidationError` | The constructor rejects the config, or any accessor finds a layout-grammar or frontmatter breach. Carries `slug`, optional `file` (relative to the policy directory), and optional `field`, alongside the message. |
-| `TypeError` | `horizonDays` passed to `noticeQueue` or `Policy.owedNotices` is not a finite, non-negative number. |
+| `TypeError` | `horizonDays` passed to `noticeQueue`, `supersededSince` or `Policy.owedNotices` is not a finite, non-negative number. |
 | `Error` | `PolicyDocument` resolved a `(revision, locale)` pair with no content. A plain `Error`, not a validation error: the corpus is valid, the ask was wrong. |
 
 ```ts

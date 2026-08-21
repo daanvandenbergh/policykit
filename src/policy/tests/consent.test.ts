@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_NOTICE_HORIZON_DAYS, Policy, noticeQueue, requiredConsentRevision } from "../policy.js";
+import { DEFAULT_NOTICE_HORIZON_DAYS, Policy, noticeQueue, requiredConsentRevision, supersededSince } from "../policy.js";
 import { fixture, makePolicyDir, mdx } from "./helpers.js";
 
 /**
@@ -54,6 +54,74 @@ describe("noticeQueue", () => {
         expect(noticeQueue([terms], { now: new Date("2026-10-11T00:00:00Z") })).toHaveLength(1);
         expect(noticeQueue([terms], { now: new Date("2026-10-12T00:00:00Z") })).toHaveLength(0);
         expect(noticeQueue([terms, privacy], { now: new Date("2026-12-01T00:00:00Z"), horizonDays: 365 })).toHaveLength(2);
+    });
+});
+
+describe("supersededSince", () => {
+    it("names the revision noticeQueue dropped - the announcement a consumer must now withdraw", () => {
+        // A published on 2026-07-01 for 2026-09-01 and announced during its notice window; B is then
+        // published as an immediate change on 2026-07-02, so A never binds for a single moment.
+        const dir = makePolicyDir({
+            "2026-07-01/en.mdx": mdx({ effectiveFrom: "2026-09-01", notice: "notify", changeSummary: "Pending change." }),
+            "2026-07-02/en.mdx": mdx({ effectiveFrom: "2026-07-02", notice: "notify", changeSummary: "Immediate change superseding it." }),
+        });
+        const policy = new Policy({ slug: "superseded", dir, locales: ["en"] });
+        const now = new Date("2026-07-15T00:00:00Z");
+
+        expect(supersededSince([policy], { now }).map((item) => item.revision.revision)).toEqual(["2026-07-01"]);
+        // The exact complement: the queue carries B, this carries A, and neither carries both.
+        expect(noticeQueue([policy], { now }).map((item) => item.revision.revision)).toEqual(["2026-07-02"]);
+    });
+
+    it("returns nothing when no revision is superseded", () => {
+        expect(supersededSince([terms, privacy], { now: new Date("2026-08-20T12:00:00Z") })).toEqual([]);
+    });
+
+    it("never names a notice: none revision - nothing ever announced it, so there is nothing to withdraw", () => {
+        const dir = makePolicyDir({
+            "2026-07-01/en.mdx": mdx({ effectiveFrom: "2026-09-01", notice: "none", changeSummary: "Silent pending change." }),
+            "2026-07-02/en.mdx": mdx({ effectiveFrom: "2026-07-02", notice: "notify", changeSummary: "Immediate change superseding it." }),
+        });
+        const policy = new Policy({ slug: "silent-superseded", dir, locales: ["en"] });
+        expect(supersededSince([policy], { now: new Date("2026-07-15T00:00:00Z") })).toEqual([]);
+    });
+
+    it("is bounded by the SAME horizon as the queue - an aged-out revision is never withdrawn", () => {
+        // The consumer's withdrawal deletes a row. A revision old enough to have left the queue is one
+        // whose announcement is history, and history is not ours to delete.
+        const dir = makePolicyDir({
+            "2026-07-01/en.mdx": mdx({ effectiveFrom: "2026-09-01", notice: "notify", changeSummary: "Pending change." }),
+            "2026-07-02/en.mdx": mdx({ effectiveFrom: "2026-07-02", notice: "notify", changeSummary: "Immediate change superseding it." }),
+        });
+        const policy = new Policy({ slug: "aged-out", dir, locales: ["en"] });
+        const now = new Date("2027-01-01T00:00:00Z");
+
+        expect(supersededSince([policy], { now })).toEqual([]);
+        expect(noticeQueue([policy], { now })).toEqual([]);
+    });
+
+    it("rejects a non-finite or negative horizonDays, exactly as the queue does", () => {
+        const now = new Date("2026-08-20T00:00:00Z");
+        expect(() => supersededSince([terms], { now, horizonDays: -30 })).toThrow(TypeError);
+        expect(() => supersededSince([terms], { now, horizonDays: Number.NaN })).toThrow(TypeError);
+    });
+
+    it("orders by policy, then revision ascending - the queue's own order", () => {
+        const dir = makePolicyDir({
+            "2026-07-01/en.mdx": mdx({ effectiveFrom: "2026-09-01", notice: "notify", changeSummary: "First pending." }),
+            "2026-07-02/en.mdx": mdx({ effectiveFrom: "2026-09-01", notice: "notify", changeSummary: "Second pending, same day." }),
+            "2026-07-03/en.mdx": mdx({ effectiveFrom: "2026-07-03", notice: "notify", changeSummary: "Immediate, supersedes both." }),
+        });
+        const policy = new Policy({ slug: "two-superseded", dir, locales: ["en"] });
+        expect(
+            supersededSince([policy], { now: new Date("2026-07-15T00:00:00Z") }).map((item) => [
+                item.policy.slug,
+                item.revision.revision,
+            ]),
+        ).toEqual([
+            ["two-superseded", "2026-07-01"],
+            ["two-superseded", "2026-07-02"],
+        ]);
     });
 });
 

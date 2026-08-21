@@ -311,6 +311,22 @@ A revision superseded before it ever bound - a newer revision (say, an immediate
 change) took effect on or before its `effectiveFrom` - is never queued, and `pending()` never
 returns it: its text will never bind, and announcing it would be misinformation.
 
+Supersession usually happens AFTER the announcement went out, though, so `supersededSince` gives
+you the other half of the same window - the revisions `noticeQueue` just dropped. An email cannot
+be unsent, but any announcement you still hold (a dashboard row, an in-app banner) is now promising
+a change that will never land:
+
+```ts
+import { supersededSince } from "@daanvandenbergh/policykit";
+
+for (const { policy, revision } of supersededSince(POLICIES, { now: new Date() })) {
+    await withdrawNotice(policy.slug, revision.revision);
+}
+```
+
+It is bounded by the same horizon as the queue, so it can only ever name a revision the queue
+would have carried - clearing what it names can never reach back into history.
+
 ---
 
 ## Lifecycle rules
@@ -391,6 +407,8 @@ Root entry - react-free:
   soonest-effective across the policies, still going to bind, and owing notice
   (`notice !== "none"`); `{ policy, revision }` or `undefined`.
 - `noticeQueue(policies, { now, horizonDays? })` - the owed-notice queue (see above).
+- `supersededSince(policies, { now, horizonDays? })` - its complement in the same window: the
+  in-horizon revisions a newer one superseded, so an announcement already sent can be withdrawn.
 - `DEFAULT_NOTICE_HORIZON_DAYS` (`60`) - the default horizon, exported so a consumer can ASSERT it
   against its own dedupe TTL. **A horizon longer than that TTL re-queues every historical revision
   each time a dedupe row is swept**, re-notifying everyone on a schedule nobody watches. Compare

@@ -358,6 +358,44 @@ export function noticeQueue(
 }
 
 /**
+ * Every revision of one policy that owes user-facing notice (`notice !== "none"`) and falls inside
+ * the horizon window, tagged with whether it is superseded - the shared body of {@link noticeQueue},
+ * {@link Policy.owedNotices} and {@link supersededSince}.
+ *
+ * ONE WINDOW, TWO ANSWERS. `noticeQueue` takes the un-superseded half and `supersededSince` takes
+ * the other, so the two can never disagree about which revisions are in play - only about which side
+ * of the supersession line they fall on. A consumer that announced a revision and later has to
+ * withdraw the announcement needs exactly that guarantee: it may only withdraw what it could have
+ * announced, and the horizon is what bounds both.
+ *
+ * @param policy - the policy to scan.
+ * @param options - `now` and the optional `horizonDays`.
+ * @returns the in-window notice-owing revisions of that policy, ascending, each with its flag.
+ */
+function noticeWindowOf(
+    policy: Policy,
+    options: { now: Date; horizonDays?: number },
+): readonly { revision: PolicyRevision; superseded: boolean }[] {
+    const horizonDays = options.horizonDays ?? DEFAULT_NOTICE_HORIZON_DAYS;
+    if (!Number.isFinite(horizonDays) || horizonDays < 0) {
+        throw new TypeError(
+            `noticeQueue: horizonDays must be a finite, non-negative number, got ${horizonDays}.`,
+        );
+    }
+    const cutoff = isoDay(new Date(options.now.getTime() - horizonDays * 86_400_000));
+    const revisions = policy.revisions();
+    const superseded = supersededFlags(revisions);
+    const inWindow: { revision: PolicyRevision; superseded: boolean }[] = [];
+    for (let i = 0; i < revisions.length; i++) {
+        const revision = revisions[i];
+        if (revision.notice !== "none" && revision.effectiveFrom >= cutoff) {
+            inWindow.push({ revision, superseded: superseded[i] });
+        }
+    }
+    return inWindow;
+}
+
+/**
  * The shared body of {@link noticeQueue} and {@link Policy.owedNotices} - one implementation, so the
  * two can never disagree about what "owed" means.
  *
@@ -369,19 +407,50 @@ function owedNoticesOf(
     policy: Policy,
     options: { now: Date; horizonDays?: number },
 ): readonly PolicyRevision[] {
-    const horizonDays = options.horizonDays ?? DEFAULT_NOTICE_HORIZON_DAYS;
-    if (!Number.isFinite(horizonDays) || horizonDays < 0) {
-        throw new TypeError(
-            `noticeQueue: horizonDays must be a finite, non-negative number, got ${horizonDays}.`,
-        );
+    return noticeWindowOf(policy, options)
+        .filter((entry) => !entry.superseded)
+        .map((entry) => entry.revision);
+}
+
+/**
+ * The exact complement of {@link noticeQueue} within the same window: every revision that owes
+ * notice and is inside `horizonDays`, but has been SUPERSEDED - a newer revision takes effect on or
+ * before its own effective day, so its text will never bind for a single moment.
+ *
+ * WHY A CONSUMER NEEDS THE OTHER HALF. `noticeQueue` silently drops a superseded revision, which is
+ * right for a queue - announcing a text that will never bind is misinformation. But supersession
+ * usually happens AFTER the announcement: revision A enters the queue, its notice goes out, and then
+ * B is published with an effective day on or before A's. The email cannot be unsent, but any
+ * announcement the consumer can still reach - a dashboard row, an in-app banner it persisted - is now
+ * promising a change that will never land, on a date nothing will ever happen on. This function names
+ * exactly those revisions so the consumer can withdraw them.
+ *
+ * BOUNDED IDENTICALLY TO THE QUEUE, on purpose: a revision that has aged out of the horizon is not
+ * returned, so a consumer clearing what this names can never reach back and delete a historical
+ * announcement its user is still entitled to see. What this returns is always a revision the queue
+ * would have carried, had it not been superseded.
+ *
+ * @param policies - the policies to scan.
+ * @param options - `now` (reduced to its UTC day) and the optional `horizonDays` (default
+ *   {@link DEFAULT_NOTICE_HORIZON_DAYS}, must be a finite, non-negative number).
+ * @returns each superseded in-window `{ policy, revision }` pair, ordered by policy then revision
+ *   ascending - the same order {@link noticeQueue} uses.
+ * @throws PolicyValidationError when any policy's directory is invalid.
+ * @throws TypeError on a non-finite or negative `horizonDays`.
+ */
+export function supersededSince(
+    policies: readonly Policy[],
+    options: { now: Date; horizonDays?: number },
+): readonly { policy: Policy; revision: PolicyRevision }[] {
+    const withdrawn: { policy: Policy; revision: PolicyRevision }[] = [];
+    for (const policy of policies) {
+        for (const entry of noticeWindowOf(policy, options)) {
+            if (entry.superseded) {
+                withdrawn.push({ policy, revision: entry.revision });
+            }
+        }
     }
-    const cutoff = isoDay(new Date(options.now.getTime() - horizonDays * 86_400_000));
-    const revisions = policy.revisions();
-    const superseded = supersededFlags(revisions);
-    return revisions.filter(
-        (revision, index) =>
-            !superseded[index] && revision.notice !== "none" && revision.effectiveFrom >= cutoff,
-    );
+    return withdrawn;
 }
 
 /**

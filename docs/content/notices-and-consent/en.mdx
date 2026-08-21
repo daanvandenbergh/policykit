@@ -161,6 +161,12 @@ consent gate - see [how it works](/how-it-works/) for why. What that costs you a
 superseding revision still owes the superseded one's reconsent, record `reconsent` on the
 superseding revision itself, or the re-prompt is silently dropped.
 
+Exclusion is not withdrawal, though. Supersession normally happens while the earlier revision's
+notice window is running, which means its notice has ALREADY gone out. `supersededSince(policies,
+{ now, horizonDays? })` returns exactly the revisions `noticeQueue` dropped, inside the same
+horizon, so your job can clear the announcements it still controls - a dashboard row, an in-app
+banner - in the same sweep that queues the new ones. A sent email is not one of them.
+
 ## Related
 
 - [API reference](/api-reference/) - every signature, default, and throw condition on this page.
