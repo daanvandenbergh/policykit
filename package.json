@@ -36,8 +36,7 @@
         "test:watch": "vitest",
         "typecheck": "tsc --noEmit",
         "prepublishOnly": "npm run build",
-        "push-and-publish": "git add -A && git commit -m 'Updates' && npm run release",
-        "release": "npm version patch && git push -u origin main --follow-tags"
+        "release": "git add -A && (git diff --cached --quiet || git commit -m 'Updates') && npm version patch && git push -u origin main --follow-tags"
     },
     "dependencies": {
         "gray-matter": "^4.0.3",
