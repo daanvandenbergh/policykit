@@ -36,7 +36,8 @@
         "test:watch": "vitest",
         "typecheck": "tsc --noEmit",
         "prepublishOnly": "npm run build",
-        "push-and-publish": "git add -A && git commit -m 'Updates' && npm version patch && npm publish && git push -u origin main"
+        "push-and-publish": "git add -A && git commit -m 'Updates' && npm run release",
+        "release": "npm version patch && git push -u origin main --follow-tags"
     },
     "dependencies": {
         "gray-matter": "^4.0.3",
@@ -67,7 +68,7 @@
         }
     },
     "devDependencies": {
-        "@daanvandenbergh/claudekit": "^1.4.0",
+        "@daanvandenbergh/claudekit": "^1.4.1",
         "@daanvandenbergh/scribekit": "^2.0.0",
         "@types/node": "^22.20.1",
         "@types/react": "^19",
