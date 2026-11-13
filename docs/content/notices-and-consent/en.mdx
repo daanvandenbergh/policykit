@@ -13,7 +13,7 @@ keywords:
     - noticeQueue
     - horizon
 image: "/assets/docs/notices-and-consent/hero.en.jpg"
-updated: "2026-08-11"
+updated: "2026-11-12"
 ---
 
 When a policy revision is published, your product owes three things: a banner announcing it, a
@@ -139,7 +139,11 @@ comparison in the package ([how it works](/how-it-works/) covers the convention)
 
 The gate is **one joint threshold** across the policies you pass. A reconsent whose revision string
 is older than a sibling policy's newer baseline or reconsent is subsumed by it, so users re-prompt
-once against the joint max rather than once per policy. If you need strictly per-policy reconsent
+once against the joint max rather than once per policy. That is only safe when the subsumed
+reconsent binds no later than the newer one: a `reconsent` that binds after a sibling's `reconsent`
+with an equal or newer revision string never re-prompts anyone, so move the earlier-binding one's
+`effectiveFrom` later to match - or, if that one is already committed, date the new one after it
+(see [`/policykit`](/policykit/)). If you need strictly per-policy reconsent
 tracking, call this per policy - `requiredConsentRevision([termsPolicy], now)` - and store one stamp
 each.
 
@@ -157,13 +161,15 @@ order is date order - compare them with `>=` and never convert them to `Date`.
 ## Superseded revisions are excluded everywhere
 
 A revision superseded before it ever bound is never announced, never queued, and never moves the
-consent gate - see [how it works](/how-it-works/) for why. What that costs you as an author: if the
-superseding revision still owes the superseded one's reconsent, record `reconsent` on the
-superseding revision itself, or the re-prompt is silently dropped.
+consent gate - see [how it works](/how-it-works/) for why. What that costs you as an author:
+surviving superseded changes go in a revision effective no earlier than the superseded one's
+`effectiveFrom` (a second revision dated the next day if the superseding one takes effect earlier),
+and whichever revision carries a superseded revision's changes records that revision's tier when it
+is stricter - `reconsent` included, or the re-prompt is silently dropped.
 
 Exclusion is not withdrawal, though. Supersession normally happens while the earlier revision's
-notice window is running, which means its notice has ALREADY gone out. `supersededSince(policies,
-{ now, horizonDays? })` returns exactly the revisions `noticeQueue` dropped, inside the same
+notice window is running, which means its notice has ALREADY gone out.
+`supersededSince(policies, { now, horizonDays? })` returns exactly the revisions `noticeQueue` dropped, inside the same
 horizon, so your job can clear the announcements it still controls - a dashboard row, an in-app
 banner - in the same sweep that queues the new ones. A sent email is not one of them.
 

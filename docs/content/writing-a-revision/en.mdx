@@ -13,7 +13,7 @@ keywords:
     - changeSummary
     - policy versioning
 image: "/assets/docs/writing-a-revision/hero.en.jpg"
-updated: "2026-08-14"
+updated: "2026-11-12"
 ---
 
 A material change to a policy is a new revision: a new dated directory, never an edit to a
@@ -30,13 +30,21 @@ what a clause means, it was never an erratum - revert it and cut a revision.
 
 ## Copy the newest revision to a new dated directory
 
-The revision date is today, the day the change is decided, zero-padded `YYYY-MM-DD`. That
-directory name is the revision's whole identity.
+The revision date is today as the UTC day (`date -u +%F`, the clock policykit binds on) - the day
+the change is decided - zero-padded `YYYY-MM-DD`. That directory name is the revision's whole
+identity.
 
 ```bash
 cd policies/terms-of-service
 cp -r 2026-07-07 2026-08-11
 ```
+
+Copy the newest revision, unless yours takes effect before a still-pending revision's
+`effectiveFrom`. In that case copy the newest pending revision that takes effect before yours, or
+the binding revision if there is none, instead, and carry the superseded pending changes in a
+second revision as described under
+[superseding a revision that has not taken effect](#superseding-a-revision-that-has-not-taken-effect)
+below.
 
 Copy every locale file, then rewrite each one. Translations are made fresh from the new source
 text - a copied-forward translation validates green and lies. See
@@ -72,7 +80,9 @@ another revision, a notice, and possibly fresh consent. Draft to the floor the g
 and stop there:
 
 - Write the **statutory bound**, not a better one - the notice period, retention window, refund or
-  response time the law states. Where the law gives a range, take the bound that costs you least.
+  response time the law states. Where the law lets you choose within a range, take the bound that
+  costs you least, together with every condition the law attaches to it: a default period with a
+  conditional extension is stated as the default plus its condition, never as the outer limit.
 - **Volunteer nothing** the law does not demand: no uptime or response-time guarantees, no deletion
   faster than required, no rights the statute does not grant, no clause borrowed from a competitor's
   more generous policy.
@@ -85,7 +95,12 @@ and stop there:
 
 Removing an over-promise you already published is a material change of its own - it reduces what
 the customer gets, so it is a new revision at `notify` (or `reconsent` if consent hangs on it) with
-the notice window your current terms promise. Never edit it away in place.
+the notice window your current terms promise. Never edit it away in place. A less protective
+privacy change (a new purpose, new recipients, longer retention, or a privacy promise removed or
+weakened) never reaches data already collected on notice alone: where US users are in scope, write
+it so it applies only to data collected after `effectiveFrom`, or obtain users' affirmative express
+consent for existing data. In the EU and UK a new purpose also needs its own legal basis and prior
+information (GDPR Arts 6(4), 13(3)).
 
 ## Choose the notice tier
 
@@ -118,8 +133,11 @@ changeSummary: "Cut the refund window from 30 to 14 days; notify, existing conse
 - **Never amend a shipped revision.** Your notice delivery is deduped on the revision string, so
   an edited revision reaches nobody. policykit itself never dedupes or re-sends - `noticeQueue`
   re-reports every owed revision on every call, and expiring the dedupe row is your side of it.
-- **One revision per day.** A second material change folds into today's directory only if it has
-  not deployed yet; otherwise date it tomorrow.
+- **One revision per day.** A second material change folds into today's directory only if that
+  directory is still uncommitted and one `effectiveFrom` and tier serve both changes without
+  shortening a notice window or delaying an immediate change. If it is committed, date the new
+  revision tomorrow; if it is uncommitted but the changes cannot share, keep the immediate changes in
+  today's directory and move everything that owes notice to tomorrow's.
 - **Never back-fill.** A new locale starts at the revision that introduces it. The loader enforces
   contiguity forward: once a locale appears at revision R it must exist for every revision after R.
   It may legally be absent before R - not backfilling the archive is your rule, not the loader's.
@@ -137,9 +155,14 @@ If you ship a revision that takes effect on or before a still-pending revision's
 the pending one is superseded: its text never binds, so policykit excludes it everywhere - see
 [how it works](/how-it-works/) for why.
 
-The surviving obligations move to the superseding revision. If the superseded revision was
-`reconsent` and its change survives in the new text, record `reconsent` on the **new** revision.
-Otherwise the re-prompt is silently dropped.
+The surviving obligations go in a revision effective no earlier than the superseded one's
+`effectiveFrom`. Never put them in one that takes effect before it: that cuts short the notice users
+already got. If your new revision takes effect earlier, add a second revision dated the next day,
+effective no earlier than the superseded one, whose text is the new revision's plus the superseded
+changes. Whichever revision carries a superseded revision's changes records that revision's tier
+when it is stricter - `reconsent` included. Otherwise the re-prompt is silently dropped. A new
+revision that takes effect after a pending one does not supersede it: build its text from the
+pending revision's, or the pending changes are reverted the day it binds.
 
 ## Validate before you commit
 
@@ -151,8 +174,11 @@ the `PolicyValidationError` you get.
 ## Let an agent do it
 
 The package ships a Claude Code skill that runs this whole workflow, and a rules file that carries
-the judgement calls above into every session. See [`/policykit`](/policykit/) for both, including how
-to install them.
+the judgement calls above into every session. The same skill also audits your published policies:
+`/policykit audit` checks every clause against the law and against what your code actually does, and
+by default cuts promises above the legal minimum that are neither part of the deal nor ones you chose
+to keep. See [`/policykit`](/policykit/) for both, including how to
+install them.
 
 ## Related
 

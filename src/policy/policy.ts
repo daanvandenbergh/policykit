@@ -509,8 +509,9 @@ export function pendingNotice(
  * A revision superseded before its effective day never moves the gate, for the same reason
  * `pending()` and `noticeQueue` exclude it: its text never binds, so demanding consent to it is
  * meaningless - and would re-prompt every user on its effectiveFrom day over nothing. When a
- * superseding revision still owes the superseded one's reconsent, the AUTHOR records
- * `reconsent` on the superseding revision (see the skill's supersession step).
+ * superseded revision's reconsent change survives, the AUTHOR records `reconsent` on whichever
+ * revision carries it: the superseding one, or a next-day revision effective no earlier than the
+ * superseded one's effectiveFrom (see the skill's supersession step).
  *
  * STAMP THIS VALUE at acceptance time (the README recipe does): it is monotone over time and
  * never runs ahead of a requirement that has not bound yet. Stamping anything else re-creates

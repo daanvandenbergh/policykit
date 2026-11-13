@@ -13,7 +13,7 @@ keywords:
     - supersession
     - UTC day
 image: "/assets/docs/how-it-works/hero.en.jpg"
-updated: "2026-08-11"
+updated: "2026-11-12"
 ---
 
 policykit answers three questions about a legal document: which text binds right now, what notice
@@ -80,7 +80,7 @@ On 15 June 2026, `latest()` returns `2026-06-20`, `effective(now)` still returns
 (the `PolicyNotice` type in `src/policy/types.ts`). Unsure between two tiers? Record the stricter
 one.
 
-- **`none`** - non-material, or forced by law or security. Nothing queued, nothing announced.
+- **`none`** - non-material, or forced by law or security and owing no notice. Nothing queued, nothing announced.
 - **`notify`** - users must be told, but existing consent stands. It appears in `noticeQueue()`
   until its `effectiveFrom` ages past the notice horizon (`DEFAULT_NOTICE_HORIZON_DAYS`, 60 days),
   and in the banner; it never re-prompts anyone.
@@ -104,7 +104,10 @@ still running.
 Superseded revisions stay in the archive and `revisions()` still lists them, but `pending()`,
 `owedNotices()`, `noticeQueue()`, `pendingNotice()` and `requiredConsentRevision()` all skip them:
 announcing or gating on a text that will never bind is misinformation. If the superseded change
-survives in the new text, record its tier on the superseding revision instead.
+survives, carry it in a revision effective no earlier than the superseded one's `effectiveFrom` - a
+second revision dated the next day when the superseding one takes effect earlier - and whichever
+revision carries a superseded revision's changes records that revision's tier when it is stricter -
+`reconsent` included.
 
 ## Why old revisions never leave
 

@@ -1,6 +1,6 @@
 ---
 title: "/policykit"
-description: "Reference for the Claude Code skill policykit ships: how it triggers, how to install it, the workflow it runs, and the rules file that binds every session."
+description: "Reference for the Claude Code skill policykit ships: how to install it, how it authors a revision, how it audits every policy against the law and the code, and the rules file that binds every session."
 tab: "Guide"
 group: "Author"
 order: 6
@@ -8,26 +8,38 @@ icon: "workflow"
 keywords:
     - claude code skill
     - policykit skill
+    - policy audit
+    - privacy policy audit
+    - legal minimum
     - policy rules file
     - CLAUDE.md
-    - agent workflow
     - policy revision
 image: "/assets/docs/policykit/hero.en.jpg"
-updated: "2026-08-14"
+updated: "2026-11-12"
 ---
 
-The package ships a Claude Code skill that authors a policy revision end to end: it decides
-material-change-vs-erratum, creates the dated revision directory with one MDX file per locale,
-sets the notice tier and the effective date, and validates. It is the [writing a
-revision](/writing-a-revision/) checklist, executed.
+The package ships a Claude Code skill with two modes. **Author** writes a policy revision end to
+end: it decides material-change-vs-erratum, creates the dated revision directory with one MDX file
+per locale, sets the notice tier and the effective date, and validates. It is the [writing a
+revision](/writing-a-revision/) checklist, executed. **Audit** reviews every policy you have,
+clause by clause, against the law and against what your code actually does, and fixes what it
+finds.
 
 ```text
 /policykit [policy slug or description of the change - omit to be asked]
+/policykit audit [policy slug] [--scan] [--out <path>] [--refresh-law]
 ```
 
 It is user-invokable, so you can call it by name. It also triggers on its own when you ask for
 the work in plain language: "add a policy revision", "update the terms", "publish the privacy
-policy change", "fix a typo in a policy", or "when does the new DPA take effect?".
+policy change", "fix a typo in a policy", "when does the new DPA take effect?", "audit our
+privacy policy", "are we over-promising?", or "does the privacy policy match what the app does?".
+
+Both modes draft to one doctrine: **promise exactly what the law requires, nothing more.** Every
+sentence in a policy is an obligation you must keep for as long as the text stands, and can only
+withdraw with a new revision, a notice, and sometimes fresh consent. So the skill writes the floor
+the governing law sets, checked against the law's own text rather than recalled, and adds nothing on
+top.
 
 ## Install it
 
@@ -47,9 +59,9 @@ ones that invoke the skill:
 @node_modules/@daanvandenbergh/policykit/rules/policies.md
 ```
 
-## What it does
+## Author mode
 
-Eight steps, in order.
+Nine steps, in order.
 
 0. **Locate the policy and its config.** It finds your `new Policy({ slug, dir, locales,
    defaultLocale? })` instances - conventionally one module such as `src/content/policies.ts` -
@@ -57,21 +69,103 @@ Eight steps, in order.
    policy, it lists the configured slugs and asks.
 1. **Material change or erratum?** An erratum is edited in place and the run stops after
    validation. A material change continues as a new revision.
-2. **Pick the revision date.** Today, zero-padded `YYYY-MM-DD`.
+2. **Pick the revision date.** Today as the UTC day (`date -u +%F`, the clock policykit binds on),
+   zero-padded `YYYY-MM-DD`.
 3. **Create the revision directory and write the text.** `<dir>/<date>/` with one `<locale>.mdx`
    per configured locale, matching `^[a-z]{2}(?:-[A-Z]{2})?\.mdx$`, each with a non-empty body -
-   drafted to the legal minimum, never above it.
+   drafted to the legal minimum, never above it. Every period or right it states is checked
+   against the law's own text, and every fact against your code.
 4. **Write the frontmatter** on the default locale's file only: `effectiveFrom`, `notice` and
    `changeSummary`, plus an optional `title`. Other locale files get an optional `title` and
    nothing else.
-5. **Set `effectiveFrom`.** A real calendar day on or after the revision date.
-6. **Validate.** It runs your own test suite, which covers `assertValid()` / `assertValidAll()`,
+5. **Set `effectiveFrom`.** A real calendar day on or after the revision date, far enough out to
+   honour the notice window your current terms promise and any statutory notice floor.
+6. **Self-audit the new text.** It runs the audit's clause checks and refutation pass (below) on
+   the sentences the revision adds or changes, in every locale, checks the whole new revision for
+   missing mandatory disclosures, and removes or weakens a sentence only once it has established that
+   no applicable law requires it (otherwise it asks). It fixes what the checks confirm until no
+   confirmed findings remain, or only ones blocked on you or fixable only in the system, which
+   it lists for you. Findings in text carried over unchanged are listed for `/policykit audit`.
+7. **Validate.** It runs your own test suite, which covers `assertValid()` / `assertValidAll()`,
    and fixes what throws until it is green - a full `next build` exercises the same loader. Every
    grammar or frontmatter breach throws a `PolicyValidationError` naming the file and field. See
    [validation](/validation/).
-7. **Show the diff.** The git diff is the review artifact: one new dated directory, or one
-   in-place erratum edit, and nothing else touched. It reminds you that committed means published
-   on the next deploy, and that policy history is never rewritten.
+8. **Show the diff.** The git diff is the review artifact: one new dated directory (two when a
+   next-day revision is needed), or one in-place erratum edit, and nothing else touched except the audit memory in
+   `.agentstore/policykit/`. It reminds you that committed means published on the next deploy,
+   that a revision must deploy no later than its revision date (a later deploy re-plans the change
+   set for the deploy day first, so the notice window is not silently shortened), and that policy
+   history is never rewritten.
+
+## Audit mode
+
+`/policykit audit` is built for the case where nobody else reviews your policies. It audits the
+binding revision and every pending revision of every policy, in every locale. It also covers any other legal text
+in the repo, and the promises your product copy makes outside the policies: "cancel anytime", "we
+never sell your data", "GDPR compliant", cookie-banner and checkout text. Every clause gets three
+checks:
+
+- **True.** Each factual claim is checked against what the code actually does: processors, cookies,
+  data collected, regions, retention, the consent flow. Business facts the code cannot show (your
+  legal entity, your markets, your backup retention) are asked once, and stored. The policy is
+  never treated as evidence of its own claims.
+- **Lawful.** For each law that applies to your facts, it checks that every mandatory disclosure is
+  present, that no term is void or unfair, and that no right is misstated. That includes outdated
+  law, such as a link to the EU ODR platform, which shut down on 20 July 2025. Each requirement is
+  verified against the primary source (EUR-Lex, legislation.gov.uk, the statute) and recorded with
+  its URL and date, never taken from memory.
+- **Minimum.** Every commitment is compared with the statutory floor. A promise the law does not
+  require ("we respond within 7 days", "we notify you of any breach within 72 hours", "99.9%
+  uptime", "your data never leaves the EU") is a finding, with a rewrite bounded at the floor. The
+  check runs in both directions: it never trims a disclosure the law requires.
+
+It also audits the versioning record. Is the notice tier right for what each revision changed? Does
+each `effectiveFrom` honour the window the previous terms promised? Was published text edited in
+place? Were translations copied forward?
+
+Before anything is reported or fixed, fresh subagents try to refute each finding: a misread law, a
+regime that does not apply, a clause read out of context, dead code taken as evidence, or a rewrite
+that drops below the floor or creates a new promise. A separate cold read of each document then
+looks for what the clause-by-clause pass missed.
+
+**It fixes by default.** Confirmed findings with a text fix are applied. Errata are edited in
+place. Any other fix to a managed policy goes into a new revision, written by the author mode's
+rules. Product copy your terms do not incorporate and that is shown before a contract is made (marketing,
+pricing, FAQ, signup text) binds only the customers who sign up while it is shown, so a trim there is
+applied in place - it stops the promise reaching new customers -
+and the old claim stays on the commitment register for customers who signed up while it was shown.
+In other legal text, and in copy your terms incorporate by reference, corrections the binding change
+clause or the law lets take effect at once are edited in place; a trim, or any other change that
+owes notice, is reported with the notice it owes, not applied, because an in-place edit would skip
+the notice window. Findings that rest on unverified law, open questions, promises you recorded as accepted, and system-side fixes are reported, never
+applied. Trimming an over-promise reduces what customers get, so it carries at least `notify` and
+the notice window your current terms promise. The new text is then audited again until no
+confirmed findings remain, or only ones blocked on you or fixable only on the system side. It never
+commits, pushes, or deploys, and never changes application logic - product copy that lives in code
+is edited only as a string literal. When a policy states a fact your system does not match, it
+changes the text to match the system and reports the system-side alternative. The exceptions are a
+statement the law requires, a core term of the deal, and a commitment the policy makes: then the
+text stays, and the finding is reported as a system-side fix or put to you as a question. When the
+practice itself is unlawful, a truthful rewrite does not close the finding: it stays open
+as a system-side fix.
+
+| Flag | What it does |
+| --- | --- |
+| `--scan` | Report only. No policy, page, or copy file is changed; the audit memory in `.agentstore/policykit/` is still updated. |
+| `--out <path>` | Also save the report to `<path>`. |
+| `--refresh-law` | Re-verify every cached legal source instead of reusing ones checked in the last 90 days. |
+
+The report gives a verdict, which is never CLEAN while any regime, source, or fact is unverified. It
+lists the findings with their legal citation and evidence, and the questions it needs you to answer.
+It also gives the **commitment register**: every promise your policies still make, with its basis
+(the law, the deal, or your recorded decision to keep it), and whether your system keeps it today.
+
+The audit keeps its memory in `.agentstore/policykit/`: `facts.md` holds your confirmed business
+facts, `law.md` the verified legal sources, and `accepted.md` the above-floor promises you decided
+to keep on purpose. Commit the directory. It is how the next audit knows what was already settled.
+
+Every report ends with the same statement: the review was done by an AI model, not a lawyer, it is
+not legal advice, and it is least reliable wherever it says something was not verified.
 
 ## The judgement calls it makes for you
 
@@ -83,12 +177,17 @@ Eight steps, in order.
   disclosure, and no better one - so you are not left keeping a promise the law never asked for.
   Where the governing law or the customer class is unsettled, it asks rather than defaulting to
   the generous reading.
-- **One revision per day.** If today's directory exists but has not deployed, the change folds
-  into it. If it has deployed, the new revision is dated tomorrow.
+- **One revision per day.** If today's directory is committed, the new revision is dated
+  tomorrow. If it exists uncommitted and one `effectiveFrom` and tier serve both changes without
+  shortening a notice window or delaying an immediate change, the change folds into it. Otherwise
+  the immediate changes stay in today's directory and everything that owes notice moves to
+  tomorrow's.
 - **Fresh translations.** Every locale is translated from the new source text, never copied
   forward from the previous revision.
-- **Supersession.** If the new revision supersedes one still inside its notice window, it checks
-  that the surviving obligations, and the stricter tier, move to the new revision.
+- **Supersession.** If the new revision supersedes one still inside its notice window, it carries
+  the surviving changes, and the stricter tier, in a revision effective no earlier than the
+  superseded one's `effectiveFrom` - a second revision dated the next day when the new one takes
+  effect earlier.
 
 Each of these is spelled out in full on [writing a revision](/writing-a-revision/), with the
 layout grammar on [policy directories](/policy-directories/).
@@ -107,12 +206,28 @@ Most of what it states is judgement no test can catch:
 - Promise the legal minimum and never more: the statutory bound, not a better one; no volunteered
   guarantees; no unbounded absolutes like "never" or "immediately". Removing an over-promise you
   already published is itself a material change, not a quiet in-place edit.
+- A less protective privacy change never reaches data already collected on notice alone: where US
+  users are in scope it applies only to data collected after it takes effect, unless users give
+  affirmative express consent; in the EU and UK a new purpose also needs its own legal basis and
+  prior information. A notice banner is not consent.
+- The floor comes from the primary legal source, never from memory - and a required disclosure is
+  never cut on a guess. Text an app store, API provider, or customer contract requires is kept on
+  your decision, never trimmed as "not legally required".
+- Every fact a policy states must be true of the system, checked against the code, never against
+  the policy itself.
 - Every locale of a new revision is translated fresh; a new locale starts at the revision that
   introduces it and never back-fills history.
 - `notice` is the legal decision, recorded per revision, and the tier drives the UI: a `none`
   revision is never announced by the banner and never queued, so if users should see it coming, it
   was never `none`. See [notices and consent](/notices-and-consent/).
-- A revision that supersedes a still-pending one carries the surviving obligations itself.
+- A revision that supersedes a still-pending one never cuts its notice short: surviving changes go
+  in a revision effective no earlier than the superseded one's `effectiveFrom`, and that revision
+  records the superseded tier when stricter. A revision effective after a pending one builds on the
+  pending text.
+- Jointly gated policies take reconsent in revision order: a `reconsent` that binds after another
+  policy's `reconsent` with an equal or newer revision string never re-prompts anyone, so the
+  earlier-binding one moves to the later `effectiveFrom` - or, if it is already committed, the new
+  one is dated after it.
 - `effectiveFrom` honours the notice window your own terms promise; the package only checks
   `>= revision`.
 - `changeSummary` says what changed and why the tier is right - evidence, never user copy.
@@ -127,7 +242,15 @@ Most of what it states is judgement no test can catch:
   notes. Work in progress that must be committed goes in `drafts/` at the policy root, never
   inside a revision directory and never as a dated directory.
 - **It does not decide your notice window.** That comes from your own published change-notice
-  clause. Where the window is unclear, it asks you.
+  clause and any statutory notice floor. Where the window is unclear, it asks you.
 - **It does not write you a more generous policy than the law requires.** Anything above the
   statutory floor is an obligation you then have to meet, so it stays at the floor unless you
-  tell it otherwise.
+  record that you want to keep a promise on purpose.
+- **It does not commit, push, or deploy, and it does not change your application logic** (copy
+  that lives in code is edited only as a string literal). You review the diff. When a stated fact
+  and the system disagree, it fixes the text and tells you what the system-side fix would be. Where
+  the law requires the statement, or it is a core term or a commitment, it leaves the text and
+  reports a system-side fix or asks you instead; where the practice itself is unlawful, the finding stays open as a
+  system-side fix.
+- **It is not a lawyer.** It reports what it could not verify instead of passing it, and every audit
+  report says it is not legal advice.

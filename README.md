@@ -258,8 +258,10 @@ const consented = required === "" || (user.acceptedPolicyRevision ?? "") >= requ
 (the first revision that ever binds) or carries `notice: "reconsent"`. A `"notify"` revision
 deliberately never moves it - it must never re-prompt anyone. A revision superseded before its
 effective day never moves it either - its text never binds (see [the notice job](#the-notice-job)),
-so demanding consent to it would re-prompt everyone over nothing; if the superseding revision
-still owes that reconsent, record `reconsent` on the superseding revision itself.
+so demanding consent to it would re-prompt everyone over nothing; if that reconsent change
+survives, carry it in a revision effective no earlier than the superseded one's `effectiveFrom` (a
+second revision dated the next day if the superseding one takes effect earlier), and record
+`reconsent` on whichever revision carries it.
 
 **Stamp the joint threshold the user just satisfied - `requiredConsentRevision` itself, evaluated
 at acceptance time:**
@@ -279,7 +281,11 @@ The user still SEES the effective texts (the quickstart page renders `effective(
 is the gate value those texts satisfy, not a display artifact. One cross-policy nuance to know:
 the gate is a single joint threshold, so a reconsent revision whose date string is older than a
 sibling policy's newer baseline/reconsent revision is subsumed by it - users are re-prompted once
-against the joint threshold, not once per policy. If you need strictly per-policy reconsent
+against the joint threshold, not once per policy. That is only safe when the subsumed reconsent
+binds no later than the newer one: a reconsent that binds after a sibling's reconsent with an equal
+or newer revision string never re-prompts anyone, so move the earlier-binding one's `effectiveFrom`
+later to match - or, if that one is already committed, date the new one after it
+(`rules/policies.md`). If you need strictly per-policy reconsent
 tracking, run the gate per policy (`requiredConsentRevision([termsPolicy], now)` etc.) with one
 stored stamp per policy.
 
@@ -360,7 +366,7 @@ you (shipped as `rules/policies.md`, see below):
 The package ships both halves of the agent contract:
 
 ```bash
-# The authoring workflow skill (add/update a revision, end to end):
+# The policykit skill (author a revision end to end, or audit every policy):
 mkdir -p .claude/skills
 ln -s ../../node_modules/@daanvandenbergh/policykit/skills/policykit .claude/skills/policykit
 ```
@@ -370,6 +376,29 @@ And add this line to your `CLAUDE.md` so the editing rules load into every sessi
 ```
 @node_modules/@daanvandenbergh/policykit/rules/policies.md
 ```
+
+The skill has two modes, and both draft to one doctrine: **promise exactly what the law requires,
+nothing more**.
+
+- **Author** - `/policykit [slug or change]` adds a revision: it decides between a material change
+  and an erratum, writes the dated directory with every locale, sets `notice` and `effectiveFrom`,
+  self-audits the new text, and validates.
+- **Audit** - `/policykit audit [slug] [--scan] [--out <path>] [--refresh-law]` is built for the case
+  where no lawyer reviews the policies. Every clause gets three checks. **True**: against the code and
+  the business facts you confirm. **Lawful**: every mandatory disclosure is present, no term is void,
+  no right is misstated, verified against the primary legal source. **Minimum**: nothing is promised
+  beyond the statutory floor. Fresh subagents try to refute every finding. Confirmed findings with a
+  text fix are then **fixed by default**: as a new revision for a managed policy, with the notice
+  tier and window worked out, or in place for errata. Trims of pre-contract product copy your terms
+  do not incorporate (marketing, pricing, FAQ, signup text) are applied in place, with the old claim
+  kept on the commitment register for earlier signups. In legal text policykit does not manage, and
+  in copy the terms incorporate by reference, corrections allowed to take effect at once are also
+  edited in place; a trim or any other change that owes notice is reported with the notice it owes,
+  not applied. The new text is re-audited. Findings on unverified law, open questions, and system-side fixes are reported, never
+  applied. `--scan` reports only. The report includes a register of everything the
+  policies commit you to. The audit's memory (confirmed facts, the verified-law ledger, and
+  deliberately kept promises) lives in `.agentstore/policykit/`. It is an AI review, not legal
+  advice, and every report says so.
 
 ---
 
@@ -387,7 +416,7 @@ Root entry - react-free:
 - `policy.effective(now)` - the revision that BINDS at `now`, or `undefined` before the first
   `effectiveFrom`. What the live page renders, as `effective(now) ?? latest()`. NOT the consent
   gate - that is `requiredConsentRevision`, and stamping this instead has a named failure mode
-  (see [the consent job](#the-consent-job)).
+  (see [the consent gate](#the-consent-gate)).
 - `policy.pending(now)` - published, not yet effective, and still going to bind (superseded
   revisions are never announced). The right call to label ONE document's next version on its own
   page; a site-wide "takes effect on" banner uses `pendingNotice`, which also filters by tier.

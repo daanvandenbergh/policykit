@@ -4,7 +4,7 @@ Policykit is an npm typescript package for versioned legal policies (terms of se
 policy, DPA, ...) as MDX in Next.js App Router apps. A version IS a directory
 (`<dir>/<YYYY-MM-DD>/<locale>.mdx`); the `Policy` class answers which revision binds now, what
 notice is owed, and renders any revision in any locale. It ships a rules file and a Claude Code
-skill for authoring revisions.
+skill that authors revisions and audits policies to the legal minimum.
 
 ## Directory Architecture
 
@@ -12,7 +12,8 @@ skill for authoring revisions.
 rules/
   policies.md                       # Shipped rules consumers @-import into their CLAUDE.md
 skills/
-  policykit/                        # The revision-authoring workflow skill (symlinked by consumers)
+  policykit/                        # The author + audit skill (symlinked by consumers): SKILL.md
+                                    #   dispatches; audit.md is the audit; reference/ the law leads
 src/
   index.ts                          # Package root entry ("."), re-exports the policy module
   policy/                           # The react-free core: Policy class, loader, types, errors
